@@ -37,7 +37,8 @@ export class TrackerManager {
   _loadSpecialAddresses() {
     try {
       const file = path.resolve(config.specialAddressFile);
-      const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+      const rows = JSON.parse(raw);
       return rows
         .map((r) => ({
           address: String(r.address || '').toLowerCase(),

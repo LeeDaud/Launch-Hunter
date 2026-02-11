@@ -170,8 +170,10 @@
       .wheel-list {
         height: calc(var(--wheel-item-h) * 3);
         overflow-y: auto;
-        scroll-snap-type: y mandatory;
+        scroll-snap-type: y proximity;
         scrollbar-width: none;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
       }
       .wheel-list::-webkit-scrollbar { display: none; }
       .wheel-track { padding: var(--wheel-item-h) 0; }
@@ -183,6 +185,7 @@
         font-size: 14px;
         color: #9db7d0;
         scroll-snap-align: center;
+        scroll-snap-stop: normal;
         user-select: none;
       }
       .wheel-item.active {
@@ -417,6 +420,7 @@
         <div class="status">
           <div id="tokenPill" class="pill mono">Token: -</div>
           <div id="statusPill" class="pill mono">Status: stopped | Block: -</div>
+          <div id="transferPill" class="pill mono">Transfers: -</div>
         </div>
         <div id="actionHint" class="hint">Ready.</div>
       </div>
@@ -558,6 +562,7 @@
       const wheelMinute = $('wheelMinute');
       const tokenPill = $('tokenPill');
       const statusPill = $('statusPill');
+      const transferPill = $('transferPill');
       const ruleState = $('ruleState');
       const ruleDesc = $('ruleDesc');
       const taxNow = $('taxNow');
@@ -578,15 +583,17 @@
       const LAUNCH_START_KEY = 'launchStartTime';
       const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
       const WHEEL_ITEM_HEIGHT = 40;
+      const WHEEL_SNAP_DELAY = 240;
       const pickerState = {
         dateOptions: [],
         hourOptions: Array.from({ length: 24 }, (_, i) => i),
-        minuteOptions: Array.from({ length: 60 }, (_, i) => i),
+        minuteOptions: Array.from({ length: 12 }, (_, i) => i * 5),
         selectedDateIndex: 0,
         selectedHourIndex: 0,
         selectedMinuteIndex: 0,
       };
       const wheelTimers = {};
+      const wheelLastTop = {};
       const LS_TOKEN_KEY = 'lastTrackedToken';
       const LS_WALLET_KEY = 'lastWalletAddress';
       const LS_MY_WALLETS_KEY = 'myWalletsList';
@@ -598,6 +605,7 @@
       let stopBusy = false;
       let myWallets = [];
       let walletLabels = {};
+      let launchStartSec = 0;
 
       function toLocalDatetimeValue(date) {
         const y = date.getFullYear();
@@ -620,15 +628,18 @@
       }
 
       function parseLaunchStartSeconds() {
+        if (Number.isFinite(launchStartSec) && launchStartSec > 0) return launchStartSec;
         if (!launchInput.value) return 0;
         const ms = new Date(launchInput.value).getTime();
         if (!Number.isFinite(ms)) return 0;
-        return Math.floor(ms / 1000);
+        launchStartSec = Math.floor(ms / 1000);
+        return launchStartSec;
       }
 
       function setLaunchInputBySeconds(sec) {
         if (!Number.isFinite(sec) || sec <= 0) return;
-        launchInput.value = toLocalDatetimeValue(new Date(sec * 1000));
+        launchStartSec = Math.floor(sec);
+        launchInput.value = toLocalDatetimeValue(new Date(launchStartSec * 1000));
         launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(sec);
       }
 
@@ -737,16 +748,32 @@
       }
 
       function bindWheel(wheelEl, key, length) {
+        wheelEl.addEventListener('click', (ev) => {
+          const item = ev.target?.closest?.('.wheel-item');
+          if (!item) return;
+          const idx = clamp(Number(item.getAttribute('data-idx') || 0), 0, length - 1);
+          if (key === 'date') pickerState.selectedDateIndex = idx;
+          if (key === 'hour') pickerState.selectedHourIndex = idx;
+          if (key === 'minute') pickerState.selectedMinuteIndex = idx;
+          scrollWheelToIndex(wheelEl, idx, true);
+          updatePickerPreview();
+        });
+
         wheelEl.addEventListener('scroll', () => {
           clearTimeout(wheelTimers[key]);
-          const idx = clamp(Math.round(wheelEl.scrollTop / WHEEL_ITEM_HEIGHT), 0, length - 1);
+          const top = wheelEl.scrollTop;
+          const idx = clamp(Math.round(top / WHEEL_ITEM_HEIGHT), 0, length - 1);
+          const prevTop = Number(wheelLastTop[key] || 0);
+          const delta = Math.abs(top - prevTop);
+          wheelLastTop[key] = top;
+          markWheelSelected(wheelEl, idx);
           wheelTimers[key] = setTimeout(() => {
             if (key === 'date') pickerState.selectedDateIndex = idx;
             if (key === 'hour') pickerState.selectedHourIndex = idx;
             if (key === 'minute') pickerState.selectedMinuteIndex = idx;
-            scrollWheelToIndex(wheelEl, idx, true);
+            scrollWheelToIndex(wheelEl, idx, delta > 8);
             updatePickerPreview();
-          }, 70);
+          }, WHEEL_SNAP_DELAY);
         }, { passive: true });
       }
 
@@ -756,11 +783,13 @@
         renderWheel(wheelHour, pickerState.hourOptions, (x) => String(x).padStart(2, '0'));
         renderWheel(wheelMinute, pickerState.minuteOptions, (x) => String(x).padStart(2, '0'));
 
-        const base = parseLaunchStartSeconds() > 0 ? new Date(parseLaunchStartSeconds() * 1000) : new Date();
+        const baseSec = parseLaunchStartSeconds();
+        const base = baseSec > 0 ? new Date(baseSec * 1000) : new Date();
         const foundDateIdx = pickerState.dateOptions.findIndex((x) => sameLocalDay(x.date, base));
         pickerState.selectedDateIndex = foundDateIdx >= 0 ? foundDateIdx : 0;
         pickerState.selectedHourIndex = base.getHours();
-        pickerState.selectedMinuteIndex = base.getMinutes();
+        const nearestMinute = clamp(Math.round(base.getMinutes() / 5) * 5, 0, 55);
+        pickerState.selectedMinuteIndex = Math.round(nearestMinute / 5);
 
         scrollWheelToIndex(wheelDate, pickerState.selectedDateIndex, false);
         scrollWheelToIndex(wheelHour, pickerState.selectedHourIndex, false);
@@ -978,6 +1007,16 @@
 
         tokenPill.textContent = `Token: ${shortAddr(snapshot.token)}`;
         statusPill.textContent = `Status: ${snapshot.running ? 'running' : 'stopped'} | Block: ${snapshot.last_processed_block || '-'}`;
+        const ingest = snapshot.ingest || {};
+        if (!ingest.counterparty_configured) {
+          transferPill.textContent = 'Transfers: set VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS';
+        } else if (ingest.no_transfers_in_window) {
+          transferPill.textContent = 'Transfers: no transfers in window';
+        } else if (Number(ingest.log_count || 0) > 0) {
+          transferPill.textContent = `Transfers: logs ${Number(ingest.log_count || 0)} | tx ${Number(ingest.tx_count || 0)}`;
+        } else {
+          transferPill.textContent = 'Transfers: waiting...';
+        }
         setModeBtn(snapshot.metric_mode);
 
         const w = snapshot.windows || {};
@@ -1132,6 +1171,7 @@
           const st = await fetch('/api/status').then((r) => r.json());
           if (st?.snapshot) renderSnapshot(st.snapshot);
           statusPill.textContent = 'Status: stopped | Block: -';
+          transferPill.textContent = 'Transfers: -';
           setHint('追踪已停止。', 'ok');
         } catch (e) {
           const msg = String(e?.message || e || '');
@@ -1227,6 +1267,11 @@
       });
 
       launchInput.addEventListener('change', () => {
+        const ms = launchInput.value ? new Date(launchInput.value).getTime() : NaN;
+        if (Number.isFinite(ms) && ms > 0) {
+          launchStartSec = Math.floor(ms / 1000);
+          launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(launchStartSec);
+        }
         applyLaunchStartChange(true);
       });
 
@@ -1258,7 +1303,7 @@
 
       bindWheel(wheelDate, 'date', 7);
       bindWheel(wheelHour, 'hour', 24);
-      bindWheel(wheelMinute, 'minute', 60);
+      bindWheel(wheelMinute, 'minute', pickerState.minuteOptions.length);
 
       function connectEvents() {
         if (eventSource) {
@@ -1280,6 +1325,7 @@
         });
         eventSource.onerror = () => {
           statusPill.textContent = 'Status: disconnected | Block: -';
+          transferPill.textContent = 'Transfers: disconnected';
           setHint('实时流断开，正在重连...', 'warn');
           try { eventSource.close(); } catch {}
           eventSource = null;

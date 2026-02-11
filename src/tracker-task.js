@@ -46,6 +46,15 @@ export class TokenTrackerTask {
     this.walletBackfillLastAt = 0;
     this.walletBackfillLastError = '';
     this.walletBackfillLastReason = '';
+    this.lastIngest = {
+      start: 0,
+      end: 0,
+      log_count: 0,
+      tx_count: 0,
+      no_transfers_in_window: false,
+      updated_at: 0,
+      wallet_filtered: false,
+    };
     this.refreshMyWalletSet();
   }
 
@@ -258,12 +267,25 @@ export class TokenTrackerTask {
     const ranges = chunkRanges(fromBlock, toBlock, config.logChunkSize);
     for (const [start, end] of ranges) {
       if (this.stopFlag) return;
+      logger.info('range pull start', {
+        token: this.tokenAddress,
+        start,
+        end,
+        replay: isReplay,
+        walletFiltered: Boolean(walletFilterSet && walletFilterSet.size),
+      });
 
       const logs = await this.rpc.getLogs({
         address: this.tokenAddress,
         event: TRANSFER_EVENT,
         fromBlock: BigInt(start),
         toBlock: BigInt(end),
+      });
+      logger.info('range pull fetched', {
+        token: this.tokenAddress,
+        start,
+        end,
+        logCount: logs.length,
       });
 
       await this.fillMissingBlockTimestamps(logs);
@@ -296,17 +318,31 @@ export class TokenTrackerTask {
       const filteredRows = walletFilterSet && walletFilterSet.size
         ? transferRows.filter((r) => walletFilterSet.has(r.from_address) || walletFilterSet.has(r.to_address))
         : transferRows;
+      const rangeTxHashes = Array.from(new Set(filteredRows.map((r) => r.tx_hash).filter(Boolean)));
 
       const { inserted, newTxHashes, insertedRows } = this.db.insertTransfers(filteredRows);
       this.db.applyMyWalletTransferRows(this.tokenAddress, insertedRows, this.myWalletSet);
       this.db.insertSpecialFlows(this.extractSpecialFromTransfers(insertedRows));
 
-      if (config.enableTxFacts && newTxHashes.length) {
-        await this.processTxFacts(newTxHashes);
+      let missingFactTxHashes = [];
+      if (config.enableTxFacts && rangeTxHashes.length) {
+        missingFactTxHashes = this.db.getMissingFactTxHashes(this.tokenAddress, rangeTxHashes);
+        if (missingFactTxHashes.length) {
+          await this.processTxFacts(missingFactTxHashes);
+        }
       }
 
       const prev = Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0);
       this.db.setMeta(this.tokenAddress, { last_processed_block: isReplay ? Math.max(prev, end) : end, running: 1 });
+      this.lastIngest = {
+        start,
+        end,
+        log_count: logs.length,
+        tx_count: rangeTxHashes.length,
+        no_transfers_in_window: logs.length === 0,
+        updated_at: nowSec(),
+        wallet_filtered: Boolean(walletFilterSet && walletFilterSet.size),
+      };
       this.emitUpdate(false, 'range_processed');
 
       logger.info('range done', {
@@ -316,9 +352,21 @@ export class TokenTrackerTask {
         logs: logs.length,
         inserted,
         newTxCount: newTxHashes.length,
+        missingFactTxCount: missingFactTxHashes.length,
+        rangeTxCount: rangeTxHashes.length,
           replay: isReplay,
           walletFiltered: Boolean(walletFilterSet && walletFilterSet.size),
         });
+      if (config.debugTrackingLogs) {
+        logger.info('range debug', {
+          token: this.tokenAddress,
+          start,
+          end,
+          logs: logs.length,
+          txHashesInRange: rangeTxHashes.length,
+          txFactsQueued: missingFactTxHashes.length,
+        });
+      }
     }
   }
 
@@ -498,17 +546,39 @@ export class TokenTrackerTask {
     }
 
     let classification = 'transfer_or_unknown';
-    if (sawVirtual && totalSpent > 0n && totalReceived > 0n) classification = 'suspected_buy';
-    else if (sawVirtual && totalSoldToken > 0n && totalSoldVirtual > 0n) classification = 'suspected_sell';
+    let kind = 'unknown';
+    if (sawVirtual && totalSpent > 0n && totalReceived > 0n) {
+      classification = 'suspected_buy';
+      kind = 'buy';
+    } else if (sawVirtual && totalSoldToken > 0n && totalSoldVirtual > 0n) {
+      classification = 'suspected_sell';
+      kind = 'sell';
+    } else if (sawToken) {
+      kind = 'transfer';
+    }
+
+    let actorAddress = null;
+    let actorReceivedToken = 0n;
+    for (const [addr, td] of tokenDelta.entries()) {
+      if (addr === zeroAddress) continue;
+      if (td > actorReceivedToken) {
+        actorReceivedToken = td;
+        actorAddress = addr;
+      }
+    }
 
     const fact = {
       token_address: token,
       tx_hash: safeAddress(receipt.transactionHash),
       block_number: blockNumber,
       timestamp,
+      actor_address: actorAddress,
+      kind,
       classification,
       spent_virtual_amount: totalSpent.toString(),
       received_token_amount: totalReceived.toString(),
+      received_virtual_amount: totalSoldVirtual.toString(),
+      sold_token_amount: totalSoldToken.toString(),
       addressFacts,
     };
 
@@ -908,6 +978,11 @@ export class TokenTrackerTask {
       },
       my_wallets: myWalletSummary,
       special_stats: specialStats,
+      ingest: {
+        ...this.lastIngest,
+        counterparty_configured: this.counterpartyList.length > 0,
+        counterparty_count: this.counterpartyList.length,
+      },
       decimals: {
         token: tokenDecimals,
         virtual: virtualDecimals,

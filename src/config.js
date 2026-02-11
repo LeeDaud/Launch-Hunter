@@ -40,7 +40,11 @@ export const config = {
   dbPath: process.env.DB_PATH || './tracker.db',
   baseHttpRpc: process.env.BASE_HTTP_RPC || 'https://mainnet.base.org',
   baseWsRpc: process.env.BASE_WS_RPC || '',
-  virtualTokenAddress: String(process.env.VIRTUAL_TOKEN_ADDRESS || '').toLowerCase(),
+  virtualTokenAddress: String(
+    process.env.VIRTUAL_TOKEN_ADDRESS
+    || process.env.VIRTUAL_CA
+    || '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b'
+  ).toLowerCase(),
   counterpartyTokens: envAddressList('COUNTERPARTY_TOKEN_ADDRESSES'),
 
   backfillBlocks: envNumber('BACKFILL_BLOCKS', 8000),
@@ -66,6 +70,7 @@ export const config = {
   rpcBaseBackoffMs: envNumber('RPC_BASE_BACKOFF_MS', 400),
 
   enableTxFacts: envBool('ENABLE_TX_FACTS', true),
+  debugTrackingLogs: envBool('DEBUG_TRACKING_LOGS', false),
   specialAddressFile: process.env.SPECIAL_ADDRESS_FILE || './src/special-addresses.json',
 };
 

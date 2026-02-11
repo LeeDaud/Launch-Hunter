@@ -58,9 +58,13 @@ export class TrackerDB {
         tx_hash TEXT NOT NULL,
         block_number INTEGER NOT NULL,
         timestamp INTEGER NOT NULL,
+        actor_address TEXT,
+        kind TEXT NOT NULL DEFAULT 'unknown',
         classification TEXT NOT NULL,
         spent_virtual_amount TEXT NOT NULL DEFAULT '0',
         received_token_amount TEXT NOT NULL DEFAULT '0',
+        received_virtual_amount TEXT NOT NULL DEFAULT '0',
+        sold_token_amount TEXT NOT NULL DEFAULT '0',
         PRIMARY KEY (token_address, tx_hash)
       );
 
@@ -154,6 +158,10 @@ export class TrackerDB {
     `);
 
     this._ensureColumn('token_meta', 'total_supply', "TEXT NOT NULL DEFAULT '0'");
+    this._ensureColumn('tx_facts', 'actor_address', 'TEXT');
+    this._ensureColumn('tx_facts', 'kind', "TEXT NOT NULL DEFAULT 'unknown'");
+    this._ensureColumn('tx_facts', 'received_virtual_amount', "TEXT NOT NULL DEFAULT '0'");
+    this._ensureColumn('tx_facts', 'sold_token_amount', "TEXT NOT NULL DEFAULT '0'");
     this._ensureColumn('tx_fact_addresses', 'sold_virtual_amount', "TEXT NOT NULL DEFAULT '0'");
     this._ensureColumn('tx_fact_addresses', 'sold_token_amount', "TEXT NOT NULL DEFAULT '0'");
   }
@@ -201,9 +209,11 @@ export class TrackerDB {
 
     this.stmtInsertTxFact = this.db.prepare(`
       INSERT OR IGNORE INTO tx_facts(
-        token_address, tx_hash, block_number, timestamp, classification, spent_virtual_amount, received_token_amount
+        token_address, tx_hash, block_number, timestamp, actor_address, kind, classification,
+        spent_virtual_amount, received_token_amount, received_virtual_amount, sold_token_amount
       ) VALUES(
-        @token_address, @tx_hash, @block_number, @timestamp, @classification, @spent_virtual_amount, @received_token_amount
+        @token_address, @tx_hash, @block_number, @timestamp, @actor_address, @kind, @classification,
+        @spent_virtual_amount, @received_token_amount, @received_virtual_amount, @sold_token_amount
       )
     `);
 
@@ -365,7 +375,20 @@ export class TrackerDB {
     });
 
     this.txApplyFact = this.db.transaction((fact) => {
-      const ret = this.stmtInsertTxFact.run(fact);
+      const insertRow = {
+        token_address: fact.token_address,
+        tx_hash: fact.tx_hash,
+        block_number: fact.block_number,
+        timestamp: fact.timestamp,
+        actor_address: fact.actor_address || null,
+        kind: fact.kind || 'unknown',
+        classification: fact.classification || 'transfer_or_unknown',
+        spent_virtual_amount: String(fact.spent_virtual_amount || '0'),
+        received_token_amount: String(fact.received_token_amount || '0'),
+        received_virtual_amount: String(fact.received_virtual_amount || '0'),
+        sold_token_amount: String(fact.sold_token_amount || '0'),
+      };
+      const ret = this.stmtInsertTxFact.run(insertRow);
       if (ret.changes === 0) return false;
 
       const minuteTs = Math.floor(fact.timestamp / 60) * 60;
@@ -383,7 +406,8 @@ export class TrackerDB {
         });
       }
 
-      if (fact.classification === 'suspected_buy') {
+      const isBuy = fact.kind === 'buy' || fact.classification === 'suspected_buy';
+      if (isBuy) {
         const m = this.stmtGetMinuteBucket.get(fact.token_address, minuteTs);
         this.stmtUpsertMinuteBucket.run({
           token_address: fact.token_address,
@@ -594,6 +618,27 @@ export class TrackerDB {
 
   getRecentFacts(tokenAddress, limit = 50) {
     return this.stmtFacts.all(tokenAddress, limit);
+  }
+
+  getMissingFactTxHashes(tokenAddress, txHashes) {
+    const list = Array.from(new Set((txHashes || []).filter(Boolean)));
+    if (!list.length) return [];
+    const missing = [];
+    const chunkSize = 400;
+    for (let i = 0; i < list.length; i += chunkSize) {
+      const chunk = list.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.db.prepare(`
+        SELECT tx_hash
+        FROM tx_facts
+        WHERE token_address = ? AND tx_hash IN (${placeholders})
+      `).all(tokenAddress, ...chunk);
+      const exists = new Set(rows.map((r) => String(r.tx_hash || '')));
+      for (const txHash of chunk) {
+        if (!exists.has(txHash)) missing.push(txHash);
+      }
+    }
+    return missing;
   }
 
   getAllTransfers(tokenAddress) {

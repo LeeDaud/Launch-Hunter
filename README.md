@@ -29,10 +29,13 @@ Copy `.env.example` to `.env`, then fill:
 - `BASE_HTTP_RPC` (Base HTTP RPC)
 - `BASE_WS_RPC` (Base WS RPC, optional but recommended)
 - `VIRTUAL_TOKEN_ADDRESS` (Base VIRTUAL contract address)
+  - alias supported: `VIRTUAL_CA`
+  - if both are empty, system falls back to built-in Virtual official address on Base
 
 Optional:
 
 - `COUNTERPARTY_TOKEN_ADDRESSES` comma-separated extra counterparties
+- `DEBUG_TRACKING_LOGS=true` to print per-range logs/txHash/fact queue debug
 - `METRIC_MODE` = `token_received` or `virtual_spent`
 - rule thresholds/cooldown
 - `MY_WALLET_FROM_BLOCK` directed backfill start block (0 means auto)
