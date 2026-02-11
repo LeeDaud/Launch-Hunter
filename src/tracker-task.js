@@ -1,7 +1,7 @@
-import { decodeEventLog, formatUnits, parseAbiItem, zeroAddress } from 'viem';
-import { config, buildCounterpartyList } from './config.js';
+﻿import { decodeEventLog, formatUnits, parseAbiItem, zeroAddress } from 'viem';
+import { buildCounterpartyList, calcBuyTaxPct, config } from './config.js';
 import { logger } from './logger.js';
-import { minuteFloor, nowSec, safeAddress, sleep } from './utils.js';
+import { minuteFloor, nowSec, safeAddress, sleep, toFloat } from './utils.js';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 
@@ -17,11 +17,13 @@ function chunkRanges(fromBlock, toBlock, span) {
 }
 
 export class TokenTrackerTask {
-  constructor({ tokenAddress, db, rpc, ruleEngine, onUpdate }) {
+  constructor({ tokenAddress, db, rpc, ruleEngine, runtimeConfig, specialAddresses, onUpdate }) {
     this.tokenAddress = safeAddress(tokenAddress);
     this.db = db;
     this.rpc = rpc;
     this.ruleEngine = ruleEngine;
+    this.runtimeConfig = runtimeConfig;
+    this.specialAddresses = specialAddresses || [];
     this.onUpdate = onUpdate;
 
     this.running = false;
@@ -33,8 +35,9 @@ export class TokenTrackerTask {
     this.currentMetricMode = config.metricMode === 'virtual_spent' ? 'virtual_spent' : 'token_received';
 
     this.blockTsCache = new Map();
-    this.decimalsCache = new Map();
+    this.tokenMetaCache = new Map();
     this.counterpartyList = buildCounterpartyList();
+    this.specialMap = new Map(this.specialAddresses.map((s) => [safeAddress(s.address), s]));
   }
 
   async start() {
@@ -42,9 +45,9 @@ export class TokenTrackerTask {
     this.stopFlag = false;
     this.db.setMeta(this.tokenAddress, { running: 1 });
 
-    await this.ensureTokenDecimals(this.tokenAddress);
+    await this.ensureTokenMeta(this.tokenAddress);
     for (const addr of this.counterpartyList) {
-      if (addr) await this.ensureTokenDecimals(addr);
+      if (addr) await this.ensureTokenMeta(addr);
     }
 
     const latest = Number(await this.rpc.getBlockNumber());
@@ -59,6 +62,7 @@ export class TokenTrackerTask {
       startFrom,
       latest,
       counterpartyCount: this.counterpartyList.length,
+      specialCount: this.specialAddresses.length,
     });
 
     if (startFrom <= latest) {
@@ -93,11 +97,7 @@ export class TokenTrackerTask {
     }
 
     if (this.unwatchHead) {
-      try {
-        this.unwatchHead();
-      } catch {
-        // ignore
-      }
+      try { this.unwatchHead(); } catch {}
     }
 
     this.running = false;
@@ -113,31 +113,40 @@ export class TokenTrackerTask {
     this.currentMetricMode = mode === 'virtual_spent' ? 'virtual_spent' : 'token_received';
   }
 
-  async ensureTokenDecimals(tokenAddress) {
+  async ensureTokenMeta(tokenAddress) {
     const address = safeAddress(tokenAddress);
-    if (!address) return 18;
-    if (this.decimalsCache.has(address)) return this.decimalsCache.get(address);
+    if (!address) return { decimals: 18, totalSupply: '0' };
+    if (this.tokenMetaCache.has(address)) return this.tokenMetaCache.get(address);
 
-    const dbMeta = this.db.getTokenMeta(address);
-    if (dbMeta) {
-      this.decimalsCache.set(address, Number(dbMeta.decimals));
-      return Number(dbMeta.decimals);
+    const cached = this.db.getTokenMeta(address);
+    if (cached && Number(cached.decimals) > 0) {
+      const data = { decimals: Number(cached.decimals), totalSupply: String(cached.total_supply || '0') };
+      this.tokenMetaCache.set(address, data);
+      return data;
     }
 
     const decimals = Number(await this.rpc.readDecimals(address));
-    this.db.upsertTokenDecimals(address, decimals, null);
-    this.decimalsCache.set(address, decimals);
-    return decimals;
+    let totalSupply = '0';
+    try {
+      totalSupply = String(await this.rpc.readTotalSupply(address));
+    } catch {
+      totalSupply = '0';
+    }
+
+    const data = { decimals, totalSupply };
+    this.db.upsertTokenMeta(address, decimals, totalSupply, null);
+    this.tokenMetaCache.set(address, data);
+    return data;
   }
 
   async getBlockTimestamp(blockNumber) {
     const bn = Number(blockNumber);
     if (this.blockTsCache.has(bn)) return this.blockTsCache.get(bn);
 
-    const cachedDb = this.db.getBlockTimestamp(bn);
-    if (cachedDb != null) {
-      this.blockTsCache.set(bn, cachedDb);
-      return cachedDb;
+    const cached = this.db.getBlockTimestamp(bn);
+    if (cached != null) {
+      this.blockTsCache.set(bn, cached);
+      return cached;
     }
 
     const block = await this.rpc.getBlock(BigInt(bn));
@@ -151,10 +160,9 @@ export class TokenTrackerTask {
     const missing = new Set();
     for (const log of logs) {
       const bn = Number(log.blockNumber);
-      if (!this.blockTsCache.has(bn) && this.db.getBlockTimestamp(bn) == null) {
-        missing.add(bn);
-      }
+      if (!this.blockTsCache.has(bn) && this.db.getBlockTimestamp(bn) == null) missing.add(bn);
     }
+
     for (const bn of missing) {
       const block = await this.rpc.getBlock(BigInt(bn));
       const ts = Number(block.timestamp);
@@ -184,11 +192,7 @@ export class TokenTrackerTask {
         if (!log.transactionHash || log.logIndex == null) continue;
         let decoded;
         try {
-          decoded = decodeEventLog({
-            abi: [TRANSFER_EVENT],
-            topics: log.topics,
-            data: log.data,
-          });
+          decoded = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data });
         } catch {
           continue;
         }
@@ -208,15 +212,15 @@ export class TokenTrackerTask {
         });
       }
 
-      const { inserted, newTxHashes } = this.db.insertTransfers(transferRows);
+      const { inserted, newTxHashes, insertedRows } = this.db.insertTransfers(transferRows);
+      this.db.insertSpecialFlows(this.extractSpecialFromTransfers(insertedRows));
+
       if (config.enableTxFacts && newTxHashes.length) {
         await this.processTxFacts(newTxHashes);
       }
 
-      const meta = this.db.getMeta(this.tokenAddress);
-      const prev = Number(meta?.last_processed_block || 0);
-      const next = isReplay ? Math.max(prev, end) : end;
-      this.db.setMeta(this.tokenAddress, { last_processed_block: next, running: 1 });
+      const prev = Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0);
+      this.db.setMeta(this.tokenAddress, { last_processed_block: isReplay ? Math.max(prev, end) : end, running: 1 });
       this.emitUpdate(false, 'range_processed');
 
       logger.info('range done', {
@@ -231,13 +235,50 @@ export class TokenTrackerTask {
     }
   }
 
+  extractSpecialFromTransfers(rows) {
+    const events = [];
+    for (const row of rows || []) {
+      const from = this.specialMap.get(row.from_address);
+      const to = this.specialMap.get(row.to_address);
+      if (from) {
+        events.push({
+          token_address: row.token_address,
+          tx_hash: row.tx_hash,
+          block_number: row.block_number,
+          timestamp: row.timestamp,
+          special_address: row.from_address,
+          label: from.label,
+          category: from.category,
+          asset: 'TOKEN',
+          direction: 'out',
+          amount: row.amount,
+        });
+      }
+      if (to) {
+        events.push({
+          token_address: row.token_address,
+          tx_hash: row.tx_hash,
+          block_number: row.block_number,
+          timestamp: row.timestamp,
+          special_address: row.to_address,
+          label: to.label,
+          category: to.category,
+          asset: 'TOKEN',
+          direction: 'in',
+          amount: row.amount,
+        });
+      }
+    }
+    return events;
+  }
+
   async processTxFacts(txHashes) {
     for (const txHash of txHashes) {
       if (this.stopFlag) return;
       const receipt = await this.rpc.getTransactionReceipt(txHash);
-      const fact = await this.classifyTxFromReceipt(receipt);
-      if (!fact) continue;
-      this.db.applyTxFact(fact);
+      const parsed = await this.classifyTxFromReceipt(receipt);
+      if (parsed.fact) this.db.applyTxFact(parsed.fact);
+      if (parsed.specialEvents.length) this.db.insertSpecialFlows(parsed.specialEvents);
     }
   }
 
@@ -247,20 +288,52 @@ export class TokenTrackerTask {
 
     const tokenDelta = new Map();
     const virtualDelta = new Map();
-    let sawTokenTransfer = false;
-    let sawVirtualTransfer = false;
+    const specialEvents = [];
+    let sawToken = false;
+    let sawVirtual = false;
+
+    const pushSpecial = ({ contract, from, to, amount, blockNumber, timestamp, txHash }) => {
+      const fromSpecial = this.specialMap.get(from);
+      const toSpecial = this.specialMap.get(to);
+      const asset = contract === token ? 'TOKEN' : contract === safeAddress(config.virtualTokenAddress) ? 'VIRTUAL' : 'OTHER';
+      if (fromSpecial) {
+        specialEvents.push({
+          token_address: token,
+          tx_hash: txHash,
+          block_number: blockNumber,
+          timestamp,
+          special_address: from,
+          label: fromSpecial.label,
+          category: fromSpecial.category,
+          asset,
+          direction: 'out',
+          amount: amount.toString(),
+        });
+      }
+      if (toSpecial) {
+        specialEvents.push({
+          token_address: token,
+          tx_hash: txHash,
+          block_number: blockNumber,
+          timestamp,
+          special_address: to,
+          label: toSpecial.label,
+          category: toSpecial.category,
+          asset,
+          direction: 'in',
+          amount: amount.toString(),
+        });
+      }
+    };
+
+    const blockNumber = Number(receipt.blockNumber);
+    const timestamp = await this.getBlockTimestamp(blockNumber);
 
     for (const log of receipt.logs || []) {
       if (!log?.topics?.length || !log.address) continue;
-
       let decoded;
       try {
-        decoded = decodeEventLog({
-          abi: [TRANSFER_EVENT],
-          topics: log.topics,
-          data: log.data,
-          strict: false,
-        });
+        decoded = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data, strict: false });
       } catch {
         continue;
       }
@@ -271,20 +344,21 @@ export class TokenTrackerTask {
       const amount = BigInt(decoded.args.value || 0n);
       if (amount <= 0n) continue;
 
+      pushSpecial({ contract, from, to, amount, blockNumber, timestamp, txHash: safeAddress(receipt.transactionHash) });
+
       if (contract === token) {
-        sawTokenTransfer = true;
+        sawToken = true;
         tokenDelta.set(from, (tokenDelta.get(from) || 0n) - amount);
         tokenDelta.set(to, (tokenDelta.get(to) || 0n) + amount);
       }
-
       if (counterpartySet.has(contract)) {
-        sawVirtualTransfer = true;
+        sawVirtual = true;
         virtualDelta.set(from, (virtualDelta.get(from) || 0n) - amount);
         virtualDelta.set(to, (virtualDelta.get(to) || 0n) + amount);
       }
     }
 
-    if (!sawTokenTransfer) return null;
+    if (!sawToken) return { fact: null, specialEvents };
 
     const allWallets = new Set([...tokenDelta.keys(), ...virtualDelta.keys()]);
     const addressFacts = [];
@@ -299,47 +373,37 @@ export class TokenTrackerTask {
       const vd = virtualDelta.get(addr) || 0n;
 
       if (td > 0n && vd < 0n) {
-        const spent = -vd;
-        const recv = td;
         addressFacts.push({
           wallet_address: addr,
           role: 'buyer',
-          spent_virtual_amount: spent.toString(),
-          received_token_amount: recv.toString(),
+          spent_virtual_amount: (-vd).toString(),
+          received_token_amount: td.toString(),
           sold_virtual_amount: '0',
           sold_token_amount: '0',
         });
-        totalSpent += spent;
-        totalReceived += recv;
+        totalSpent += -vd;
+        totalReceived += td;
       }
 
       if (td < 0n && vd > 0n) {
-        const soldToken = -td;
-        const soldVirtual = vd;
         addressFacts.push({
           wallet_address: addr,
           role: 'seller',
           spent_virtual_amount: '0',
           received_token_amount: '0',
-          sold_virtual_amount: soldVirtual.toString(),
-          sold_token_amount: soldToken.toString(),
+          sold_virtual_amount: vd.toString(),
+          sold_token_amount: (-td).toString(),
         });
-        totalSoldToken += soldToken;
-        totalSoldVirtual += soldVirtual;
+        totalSoldToken += -td;
+        totalSoldVirtual += vd;
       }
     }
 
     let classification = 'transfer_or_unknown';
-    if (sawVirtualTransfer && totalSpent > 0n && totalReceived > 0n) {
-      classification = 'suspected_buy';
-    } else if (sawVirtualTransfer && totalSoldToken > 0n && totalSoldVirtual > 0n) {
-      classification = 'suspected_sell';
-    }
+    if (sawVirtual && totalSpent > 0n && totalReceived > 0n) classification = 'suspected_buy';
+    else if (sawVirtual && totalSoldToken > 0n && totalSoldVirtual > 0n) classification = 'suspected_sell';
 
-    const blockNumber = Number(receipt.blockNumber);
-    const timestamp = await this.getBlockTimestamp(blockNumber);
-
-    return {
+    const fact = {
       token_address: token,
       tx_hash: safeAddress(receipt.transactionHash),
       block_number: blockNumber,
@@ -349,23 +413,224 @@ export class TokenTrackerTask {
       received_token_amount: totalReceived.toString(),
       addressFacts,
     };
+
+    return { fact, specialEvents };
+  }
+
+  computeHoldersAndLeaderboard(tokenDecimals, virtualDecimals, totalSupplyRaw) {
+    const transfers = this.db.getAllTransfers(this.tokenAddress);
+    const facts = this.db.getAllFactAddresses(this.tokenAddress);
+    const map = new Map();
+
+    const getRow = (addr) => {
+      const a = safeAddress(addr);
+      if (!map.has(a)) {
+        map.set(a, {
+          address: a,
+          balance: 0n,
+          cumulativeIn: 0n,
+          cumulativeOut: 0n,
+          txCount: 0,
+          lastActive: 0,
+          spentVirtualSum: 0n,
+          receivedTokenSum: 0n,
+          delta5mToken: 0n,
+        });
+      }
+      return map.get(a);
+    };
+
+    const ts5m = nowSec() - 5 * 60;
+
+    for (const t of transfers) {
+      const amt = BigInt(t.amount || '0');
+      const ts = Number(t.timestamp || 0);
+      const from = getRow(t.from_address);
+      const to = getRow(t.to_address);
+
+      from.balance -= amt;
+      from.cumulativeOut += amt;
+      from.txCount += 1;
+      from.lastActive = Math.max(from.lastActive, ts);
+      if (ts >= ts5m) from.delta5mToken -= amt;
+
+      to.balance += amt;
+      to.cumulativeIn += amt;
+      to.txCount += 1;
+      to.lastActive = Math.max(to.lastActive, ts);
+      if (ts >= ts5m) to.delta5mToken += amt;
+    }
+
+    for (const f of facts) {
+      const row = getRow(f.wallet_address);
+      row.spentVirtualSum += BigInt(f.spent_virtual_amount || '0');
+      row.receivedTokenSum += BigInt(f.received_token_amount || '0');
+      row.lastActive = Math.max(row.lastActive, Number(f.timestamp || 0));
+    }
+
+    const totalSupply = toFloat(totalSupplyRaw || '0', tokenDecimals);
+    const sellTax = Number(this.runtimeConfig.sellTaxPct || 1) / 100;
+    const holders = Array.from(map.values()).filter((r) => r.address && r.address !== zeroAddress);
+    const totalPositiveBalance = holders.reduce((acc, x) => acc + (x.balance > 0n ? x.balance : 0n), 0n);
+
+    const enriched = holders.map((h) => {
+      const balance = toFloat(h.balance, tokenDecimals);
+      const cumIn = toFloat(h.cumulativeIn, tokenDecimals);
+      const cumOut = toFloat(h.cumulativeOut, tokenDecimals);
+      const spentVirtual = toFloat(h.spentVirtualSum, virtualDecimals);
+      const receivedToken = toFloat(h.receivedTokenSum, tokenDecimals);
+      const costPerToken = receivedToken > 0 ? spentVirtual / receivedToken : 0;
+      const breakevenPrice = costPerToken > 0 ? costPerToken / (1 - sellTax) : 0;
+      const breakevenMcap = breakevenPrice > 0 ? breakevenPrice * totalSupply : 0;
+      const sharePct = totalPositiveBalance > 0n && h.balance > 0n
+        ? (Number((h.balance * 1000000n) / totalPositiveBalance) / 10000)
+        : 0;
+
+      return {
+        address: h.address,
+        balance,
+        cumulative_in: cumIn,
+        cumulative_out: cumOut,
+        tx_count: h.txCount,
+        last_active_time: h.lastActive,
+        spent_virtual_sum: spentVirtual,
+        received_token_sum: receivedToken,
+        cost_per_token: costPerToken,
+        breakeven_mcap: breakevenMcap,
+        share_pct: sharePct,
+        delta_5m_token: toFloat(h.delta5mToken, tokenDecimals),
+      };
+    });
+
+    const whales = enriched
+      .slice()
+      .sort((a, b) => (b.balance === a.balance ? b.last_active_time - a.last_active_time : b.balance - a.balance))
+      .slice(0, 100);
+
+    const heat = enriched
+      .slice()
+      .sort((a, b) => b.delta_5m_token - a.delta_5m_token)
+      .slice(0, 100)
+      .map((r) => ({ address: r.address, netflow: r.delta_5m_token, netflow_token: r.delta_5m_token, netflow_virtual: 0, trades_5m: r.tx_count }));
+
+    const active = enriched
+      .slice()
+      .sort((a, b) => (b.tx_count === a.tx_count ? b.last_active_time - a.last_active_time : b.tx_count - a.tx_count))
+      .slice(0, 100)
+      .map((r) => ({
+        address: r.address,
+        trades_5m: r.tx_count,
+        spent_virtual_5m: r.spent_virtual_sum,
+        received_token_5m: r.received_token_sum,
+        last_active_time: r.last_active_time,
+      }));
+
+    return { holders: enriched, leaderboard: { whales, heat, active, source: 'holders' } };
+  }
+
+  computeSpecialStats(tokenDecimals, virtualDecimals) {
+    const now = nowSec();
+    const rows = this.db.getSpecialFlowsSince(this.tokenAddress, now - 3600);
+    const map = new Map();
+
+    const getRow = (flow) => {
+      if (!map.has(flow.special_address)) {
+        map.set(flow.special_address, {
+          address: flow.special_address,
+          label: flow.label,
+          category: flow.category,
+          net_virtual_5m: 0,
+          net_virtual_1h: 0,
+          net_virtual_cum: 0,
+          net_token_5m: 0,
+          net_token_cum: 0,
+          last_active_time: 0,
+        });
+      }
+      return map.get(flow.special_address);
+    };
+
+    for (const r of rows) {
+      const row = getRow(r);
+      const sign = r.direction === 'in' ? 1 : -1;
+      const ts = Number(r.timestamp || 0);
+      const is5m = ts >= now - 300;
+      const amount = r.asset === 'VIRTUAL' ? toFloat(r.amount, virtualDecimals) : toFloat(r.amount, tokenDecimals);
+
+      if (r.asset === 'VIRTUAL') {
+        row.net_virtual_1h += sign * amount;
+        row.net_virtual_cum += sign * amount;
+        if (is5m) row.net_virtual_5m += sign * amount;
+      }
+      if (r.asset === 'TOKEN') {
+        row.net_token_cum += sign * amount;
+        if (is5m) row.net_token_5m += sign * amount;
+      }
+
+      row.last_active_time = Math.max(row.last_active_time, ts);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.net_virtual_5m - a.net_virtual_5m);
+  }
+
+  buildCurves(tokenMeta, walletHolder) {
+    const tokenDecimals = tokenMeta.decimals;
+    const virtualMeta = this.tokenMetaCache.get(safeAddress(config.virtualTokenAddress)) || { decimals: 18 };
+    const virtualDecimals = virtualMeta.decimals;
+    const totalSupply = toFloat(tokenMeta.totalSupply || '0', tokenDecimals);
+
+    const nowMinute = minuteFloor(nowSec());
+    const windowMinutes = Math.max(10, Number(this.runtimeConfig.curveWindowMinutes || 30));
+    const start = nowMinute - (windowMinutes - 1) * 60;
+
+    const buyFacts = this.db.getRecentBuyFacts(this.tokenAddress, start);
+    const perMinute = new Map();
+    for (const f of buyFacts) {
+      const m = minuteFloor(Number(f.timestamp || 0));
+      const cur = perMinute.get(m) || { spent: 0n, recv: 0n };
+      cur.spent += BigInt(f.spent_virtual_amount || '0');
+      cur.recv += BigInt(f.received_token_amount || '0');
+      perMinute.set(m, cur);
+    }
+
+    let lastMcap = 0;
+    const emvSeries = [];
+    const rmvSeries = [];
+
+    const rmv = walletHolder?.breakeven_mcap || 0;
+
+    for (let m = start; m <= nowMinute; m += 60) {
+      const item = perMinute.get(m);
+      if (item && item.recv > 0n) {
+        const price = toFloat(item.spent, virtualDecimals) / toFloat(item.recv, tokenDecimals);
+        if (Number.isFinite(price) && price > 0) {
+          lastMcap = price * totalSupply;
+        }
+      }
+
+      const taxPct = calcBuyTaxPct(m + 59, Number(this.runtimeConfig.launchStartTime || 0));
+      const emv = lastMcap > 0 ? lastMcap / (1 - taxPct / 100) : 0;
+      emvSeries.push({ minute_ts: m, value: emv, tax_pct: taxPct, mcap: lastMcap });
+      rmvSeries.push({ minute_ts: m, value: rmv });
+    }
+
+    return { emvSeries, rmvSeries };
   }
 
   buildSnapshot() {
     const nowMinuteTs = minuteFloor(nowSec());
-    const startMinute = nowMinuteTs - 9 * 60;
-    const buckets = this.db.getRecentBuckets(this.tokenAddress, startMinute);
-    const tokenDecimals = this.decimalsCache.get(this.tokenAddress) ?? 18;
-    const virtualDecimals = this.decimalsCache.get(config.virtualTokenAddress) ?? 18;
-    const modeDecimals = this.currentMetricMode === 'virtual_spent' ? virtualDecimals : tokenDecimals;
-    const map = new Map();
-    for (const row of buckets) {
-      const minuteTs = Number(row.minute_ts);
-      const raw = this.currentMetricMode === 'virtual_spent'
-        ? BigInt(row.virtual_spent_sum || '0')
-        : BigInt(row.token_received_sum || '0');
-      const value = this._rawToNumber(raw, modeDecimals);
-      map.set(minuteTs, value);
+    const tokenMeta = this.tokenMetaCache.get(this.tokenAddress) || { decimals: 18, totalSupply: '0' };
+    const virtualMeta = this.tokenMetaCache.get(safeAddress(config.virtualTokenAddress)) || { decimals: 18, totalSupply: '0' };
+    const tokenDecimals = tokenMeta.decimals;
+    const virtualDecimals = virtualMeta.decimals;
+
+    const bucketRows = this.db.getRecentBuckets(this.tokenAddress, nowMinuteTs - 59 * 60);
+    const minuteMap = new Map();
+    for (const b of bucketRows) {
+      const minute = Number(b.minute_ts);
+      const raw = this.currentMetricMode === 'virtual_spent' ? BigInt(b.virtual_spent_sum || '0') : BigInt(b.token_received_sum || '0');
+      const dec = this.currentMetricMode === 'virtual_spent' ? virtualDecimals : tokenDecimals;
+      minuteMap.set(minute, Number(formatUnits(raw, dec)));
     }
 
     const m0 = nowMinuteTs;
@@ -374,125 +639,84 @@ export class TokenTrackerTask {
     const m3 = nowMinuteTs - 180;
     const m4 = nowMinuteTs - 240;
 
-    const near1 = Number(map.get(m0) || 0);
-    const near2Sequence = [
-      { minute_ts: m2, value: Number(map.get(m2) || 0) },
-      { minute_ts: m1, value: Number(map.get(m1) || 0) },
+    const near1 = Number(minuteMap.get(m0) || 0);
+    const near2Seq = [
+      { minute_ts: m2, value: Number(minuteMap.get(m2) || 0) },
+      { minute_ts: m1, value: Number(minuteMap.get(m1) || 0) },
     ];
-    const near5 = [m0, m1, m2, m3, m4].reduce((acc, minute) => acc + Number(map.get(minute) || 0), 0);
+    const near5 = [m0, m1, m2, m3, m4].reduce((a, x) => a + Number(minuteMap.get(x) || 0), 0);
 
-    let rawLeaderboard = this.db.getLeaderboard(this.tokenAddress, this.currentMetricMode, 50, nowMinuteTs);
-    if (!rawLeaderboard.whales.length && !rawLeaderboard.heat.length && !rawLeaderboard.active.length) {
-      rawLeaderboard = this.db.getHolderLeaderboardFromTransfers(this.tokenAddress, 50, nowSec());
-    }
-    const leaderboard = this._formatLeaderboard(rawLeaderboard, tokenDecimals, virtualDecimals);
-    const lastSignal = this.db.getLastSignal(this.tokenAddress);
+    const holdersResult = this.computeHoldersAndLeaderboard(tokenDecimals, virtualDecimals, tokenMeta.totalSupply);
+    const walletHolder = holdersResult.holders.find((h) => safeAddress(h.address) === safeAddress(this.runtimeConfig.walletAddress));
+
     const ruleResult = this.ruleEngine.evaluate({
       tokenAddress: this.tokenAddress,
       metricMode: this.currentMetricMode,
       nowMinuteTs,
-      minuteValueMap: map,
-      lastSignal,
-      leaderboard,
+      minuteValueMap: minuteMap,
+      lastSignal: this.db.getLastSignal(this.tokenAddress),
+      leaderboard: holdersResult.leaderboard,
     });
 
-    if (ruleResult.triggered) {
-      this.db.insertSignal(ruleResult.signal);
+    if (ruleResult.triggered) this.db.insertSignal(ruleResult.signal);
+    const lastSignal = this.db.getLastSignal(this.tokenAddress);
+
+    const minuteSeries = [];
+    for (let i = 29; i >= 0; i -= 1) {
+      const minute = nowMinuteTs - i * 60;
+      minuteSeries.push({ minute_ts: minute, value: Number(minuteMap.get(minute) || 0) });
     }
 
-    const cooldownUntil = Number(ruleResult.cooldownUntil || lastSignal?.cooldown_until || 0);
+    const curves = this.buildCurves(tokenMeta, walletHolder);
+    const specialStats = this.computeSpecialStats(tokenDecimals, virtualDecimals);
 
-    const series = [];
-    for (let i = 9; i >= 0; i -= 1) {
-      const minuteTs = nowMinuteTs - i * 60;
-      series.push({ minute_ts: minuteTs, value: Number(map.get(minuteTs) || 0) });
-    }
-
-    const meta = this.db.getMeta(this.tokenAddress);
     return {
       token: this.tokenAddress,
       running: this.running,
       backfill_done: this.backfillDone,
-      last_processed_block: Number(meta?.last_processed_block || 0),
+      last_processed_block: Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0),
       metric_mode: this.currentMetricMode,
       windows: {
         near_1m: near1,
-        near_2m_sequence: near2Sequence,
+        near_2m_sequence: near2Seq,
         near_5m: near5,
       },
       signal_state: {
         passed_now: ruleResult.triggered,
         reason: ruleResult.reason || 'triggered',
         pair: ruleResult.pair,
-        cooldown_until: cooldownUntil,
-        cooling_down: cooldownUntil > nowSec(),
+        cooldown_until: Number(ruleResult.cooldownUntil || lastSignal?.cooldown_until || 0),
+        cooling_down: Number(ruleResult.cooldownUntil || lastSignal?.cooldown_until || 0) > nowSec(),
       },
-      minute_series: series,
-      leaderboard,
+      tax: {
+        launch_start_time: Number(this.runtimeConfig.launchStartTime || 0),
+        buy_tax_pct: calcBuyTaxPct(nowSec(), Number(this.runtimeConfig.launchStartTime || 0)),
+        sell_tax_pct: Number(this.runtimeConfig.sellTaxPct || 1),
+      },
+      minute_series: minuteSeries,
+      curves,
+      holder_stats: holdersResult.holders,
+      leaderboard: holdersResult.leaderboard,
+      my_wallet: {
+        address: this.runtimeConfig.walletAddress || null,
+        breakeven_mcap: walletHolder?.breakeven_mcap || 0,
+        cost_per_token: walletHolder?.cost_per_token || 0,
+      },
+      special_stats: specialStats,
       decimals: {
         token: tokenDecimals,
         virtual: virtualDecimals,
       },
+      token_meta: {
+        total_supply: tokenMeta.totalSupply,
+      },
     };
-  }
-
-  _rawToNumber(raw, decimals) {
-    try {
-      const n = Number(formatUnits(BigInt(raw), decimals));
-      return Number.isFinite(n) ? n : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  _formatLeaderboard(raw, tokenDecimals, virtualDecimals) {
-    const whales = (raw.whales || []).map((r) => {
-      const spent = this._rawToNumber(r.cumulative_spent_virtual, virtualDecimals);
-      const received = this._rawToNumber(r.cumulative_received_token, tokenDecimals);
-      const avg = received > 0 ? spent / received : 0;
-      return {
-        ...r,
-        cumulative_spent_virtual_raw: r.cumulative_spent_virtual,
-        cumulative_received_token_raw: r.cumulative_received_token,
-        cumulative_spent_virtual: spent,
-        cumulative_received_token: received,
-        weighted_avg_price: avg,
-      };
-    });
-
-    const heat = (raw.heat || []).map((r) => ({
-      ...r,
-      netflow_raw: r.netflow,
-      netflow_token_raw: r.netflow_token,
-      netflow_virtual_raw: r.netflow_virtual,
-      netflow: this.currentMetricMode === 'virtual_spent'
-        ? this._rawToNumber(r.netflow, virtualDecimals)
-        : this._rawToNumber(r.netflow, tokenDecimals),
-      netflow_token: this._rawToNumber(r.netflow_token, tokenDecimals),
-      netflow_virtual: this._rawToNumber(r.netflow_virtual, virtualDecimals),
-    }));
-
-    const active = (raw.active || []).map((r) => ({
-      ...r,
-      spent_virtual_5m_raw: r.spent_virtual_5m,
-      received_token_5m_raw: r.received_token_5m,
-      spent_virtual_5m: this._rawToNumber(r.spent_virtual_5m, virtualDecimals),
-      received_token_5m: this._rawToNumber(r.received_token_5m, tokenDecimals),
-    }));
-
-    return { whales, heat, active, source: raw.source || 'facts' };
   }
 
   emitUpdate(force, eventType) {
     const now = Date.now();
     if (!force && now - this.lastEmitAt < config.updateThrottleMs) return;
     this.lastEmitAt = now;
-
-    const snapshot = this.buildSnapshot();
-    this.onUpdate?.({
-      type: eventType,
-      ts: now,
-      snapshot,
-    });
+    this.onUpdate?.({ type: eventType, ts: now, snapshot: this.buildSnapshot() });
   }
 }

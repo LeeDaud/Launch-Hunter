@@ -1,4 +1,4 @@
-import { createPublicClient, http, webSocket } from 'viem';
+﻿import { createPublicClient, http, webSocket } from 'viem';
 import { base } from 'viem/chains';
 import { ERC20_ABI } from './abi.js';
 import { config } from './config.js';
@@ -13,32 +13,26 @@ export class RpcService {
     });
 
     this.wsClient = config.baseWsRpc
-      ? createPublicClient({
-          chain: base,
-          transport: webSocket(config.baseWsRpc),
-        })
+      ? createPublicClient({ chain: base, transport: webSocket(config.baseWsRpc) })
       : null;
   }
 
   async withRetry(label, fn) {
     const maxRetries = Math.max(1, config.maxRpcRetries);
-    const base = Math.max(50, config.rpcBaseBackoffMs);
-    let lastError = null;
+    const baseWait = Math.max(50, config.rpcBaseBackoffMs);
+    let lastErr = null;
 
-    for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+    for (let i = 0; i < maxRetries; i += 1) {
       try {
         return await fn();
       } catch (err) {
-        lastError = err;
-        const wait = base * Math.pow(2, attempt) + Math.floor(Math.random() * 100);
-        logger.warn('rpc call failed', { label, attempt: attempt + 1, wait, error: String(err?.message || err) });
-        if (attempt < maxRetries - 1) {
-          await sleep(wait);
-        }
+        lastErr = err;
+        const wait = baseWait * Math.pow(2, i) + Math.floor(Math.random() * 120);
+        logger.warn('rpc failed', { label, attempt: i + 1, wait, error: String(err?.message || err) });
+        if (i < maxRetries - 1) await sleep(wait);
       }
     }
-
-    throw lastError;
+    throw lastErr;
   }
 
   async getBlockNumber() {
@@ -65,29 +59,28 @@ export class RpcService {
     }));
   }
 
-  subscribeNewHeads(onBlock) {
-    if (!this.wsClient || !config.useWsHead) {
-      return null;
-    }
+  async readTotalSupply(tokenAddress) {
+    return this.withRetry('readTotalSupply', async () => this.httpClient.readContract({
+      address: tokenAddress,
+      abi: ERC20_ABI,
+      functionName: 'totalSupply',
+    }));
+  }
 
+  subscribeNewHeads(onBlock) {
+    if (!this.wsClient || !config.useWsHead) return null;
     try {
       const unwatch = this.wsClient.watchBlocks({
         onBlock: (block) => {
-          try {
-            const bn = Number(block.number);
-            if (Number.isFinite(bn)) onBlock(bn);
-          } catch (err) {
-            logger.warn('watch block decode failed', { error: String(err?.message || err) });
-          }
+          const bn = Number(block.number);
+          if (Number.isFinite(bn)) onBlock(bn);
         },
-        onError: (err) => {
-          logger.warn('watch block error', { error: String(err?.message || err) });
-        },
+        onError: (err) => logger.warn('watch block error', { error: String(err?.message || err) }),
       });
       logger.info('ws newHeads subscribed');
       return unwatch;
     } catch (err) {
-      logger.warn('ws subscribe failed, fallback to polling', { error: String(err?.message || err) });
+      logger.warn('ws subscribe failed, polling only', { error: String(err?.message || err) });
       return null;
     }
   }

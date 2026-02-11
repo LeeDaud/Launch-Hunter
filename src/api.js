@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import { isAddress } from 'viem';
 
 export function createApi({ tracker, db }) {
@@ -12,19 +12,13 @@ export function createApi({ tracker, db }) {
 
   const broadcast = (event, data) => {
     for (const res of clients) {
-      try {
-        send(res, event, data);
-      } catch {
-        clients.delete(res);
-      }
+      try { send(res, event, data); } catch { clients.delete(res); }
     }
   };
 
   tracker.subscribe((payload) => {
     broadcast('update', payload);
-    if (payload?.snapshot?.signal_state?.passed_now) {
-      broadcast('signal', payload);
-    }
+    if (payload?.snapshot?.signal_state?.passed_now) broadcast('signal', payload);
   });
 
   router.get('/health', (_req, res) => {
@@ -37,29 +31,28 @@ export function createApi({ tracker, db }) {
 
   router.get('/records/transfers', (req, res) => {
     const token = String(req.query?.token || '').trim().toLowerCase();
-    if (!isAddress(token)) {
-      return res.status(400).json({ ok: false, error: 'invalid token query param' });
-    }
-    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 50)));
-    const rows = db.getRecentTransfers(token, limit);
-    res.json({ ok: true, token, count: rows.length, rows });
+    if (!isAddress(token)) return res.status(400).json({ ok: false, error: 'invalid token query param' });
+    const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 50)));
+    res.json({ ok: true, token, rows: db.getRecentTransfers(token, limit) });
   });
 
   router.get('/records/facts', (req, res) => {
     const token = String(req.query?.token || '').trim().toLowerCase();
-    if (!isAddress(token)) {
-      return res.status(400).json({ ok: false, error: 'invalid token query param' });
-    }
-    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 50)));
-    const rows = db.getRecentFacts(token, limit);
-    res.json({ ok: true, token, count: rows.length, rows });
+    if (!isAddress(token)) return res.status(400).json({ ok: false, error: 'invalid token query param' });
+    const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 50)));
+    res.json({ ok: true, token, rows: db.getRecentFacts(token, limit) });
   });
 
   router.post('/track/start', async (req, res) => {
     try {
       const token = String(req.body?.token_address || req.body?.token || '').trim().toLowerCase();
-      if (!isAddress(token)) {
-        return res.status(400).json({ ok: false, error: 'invalid token_address' });
+      if (!isAddress(token)) return res.status(400).json({ ok: false, error: 'invalid token_address' });
+
+      const launchStartTime = req.body?.launch_start_time;
+      const walletAddress = req.body?.wallet_address;
+      const sellTaxPct = req.body?.sell_tax_pct;
+      if (launchStartTime != null || walletAddress != null || sellTaxPct != null) {
+        tracker.updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct });
       }
 
       const status = await tracker.start(token);
@@ -83,6 +76,16 @@ export function createApi({ tracker, db }) {
     res.json({ ok: true, metric_mode: mode, snapshot: tracker.getSnapshot() });
   });
 
+  router.post('/settings/runtime', (req, res) => {
+    const runtime = tracker.updateRuntimeSettings({
+      launchStartTime: req.body?.launch_start_time,
+      walletAddress: req.body?.wallet_address,
+      sellTaxPct: req.body?.sell_tax_pct,
+      curveWindowMinutes: req.body?.curve_window_minutes,
+    });
+    res.json({ ok: true, runtime, snapshot: tracker.getSnapshot() });
+  });
+
   router.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -93,13 +96,9 @@ export function createApi({ tracker, db }) {
     send(res, 'connected', { ok: true, ts: Date.now() });
 
     const snapshot = tracker.getSnapshot();
-    if (snapshot) {
-      send(res, 'update', { type: 'snapshot', ts: Date.now(), snapshot });
-    }
+    if (snapshot) send(res, 'update', { type: 'snapshot', ts: Date.now(), snapshot });
 
-    const timer = setInterval(() => {
-      send(res, 'ping', { ts: Date.now() });
-    }, 15000);
+    const timer = setInterval(() => send(res, 'ping', { ts: Date.now() }), 15000);
 
     req.on('close', () => {
       clearInterval(timer);

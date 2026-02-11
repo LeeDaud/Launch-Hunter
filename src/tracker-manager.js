@@ -1,3 +1,6 @@
+﻿import fs from 'node:fs';
+import path from 'node:path';
+import { isAddress } from 'viem';
 import { config } from './config.js';
 import { RpcService } from './rpc.js';
 import { RuleEngine } from './rules.js';
@@ -14,9 +17,35 @@ export class TrackerManager {
       cooldownMinutes: config.cooldownMinutes,
     });
 
+    this.runtimeConfig = {
+      launchStartTime: Number(config.launchStartTime || 0),
+      walletAddress: String(config.walletAddress || '').toLowerCase(),
+      sellTaxPct: Number(config.sellTaxPct || 1),
+      curveWindowMinutes: Number(config.curveWindowMinutes || 30),
+    };
+
+    this.specialAddresses = this._loadSpecialAddresses();
+
     this.activeTask = null;
     this.taskPromise = null;
     this.subscribers = new Set();
+  }
+
+  _loadSpecialAddresses() {
+    try {
+      const file = path.resolve(config.specialAddressFile);
+      const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return rows
+        .map((r) => ({
+          address: String(r.address || '').toLowerCase(),
+          label: String(r.label || 'Unknown'),
+          category: String(r.category || 'Unknown'),
+        }))
+        .filter((r) => isAddress(r.address));
+    } catch (err) {
+      logger.warn('failed to load special addresses', { error: String(err?.message || err) });
+      return [];
+    }
   }
 
   subscribe(fn) {
@@ -36,12 +65,8 @@ export class TrackerManager {
 
   getStatus() {
     if (!this.activeTask) {
-      return {
-        running: false,
-        token: null,
-      };
+      return { running: false, token: null, runtime: this.runtimeConfig };
     }
-
     const snap = this.activeTask.buildSnapshot();
     return {
       running: true,
@@ -49,6 +74,7 @@ export class TrackerManager {
       backfill_done: snap.backfill_done,
       last_processed_block: snap.last_processed_block,
       metric_mode: snap.metric_mode,
+      runtime: this.runtimeConfig,
     };
   }
 
@@ -60,6 +86,8 @@ export class TrackerManager {
       db: this.db,
       rpc: this.rpc,
       ruleEngine: this.ruleEngine,
+      runtimeConfig: this.runtimeConfig,
+      specialAddresses: this.specialAddresses,
       onUpdate: (payload) => this.broadcast(payload),
     });
 
@@ -78,29 +106,46 @@ export class TrackerManager {
 
   async stop() {
     if (!this.activeTask) return;
-
     await this.activeTask.stop();
     if (this.taskPromise) {
       try {
         await this.taskPromise;
       } catch {
-        // swallow
+        // ignore
       }
     }
-
     this.activeTask = null;
     this.taskPromise = null;
   }
 
   setMetricMode(mode) {
-    if (this.activeTask) {
-      this.activeTask.setMetricMode(mode);
-      this.broadcast({
-        type: 'metric_mode_changed',
-        ts: Date.now(),
-        snapshot: this.activeTask.buildSnapshot(),
-      });
+    if (this.activeTask) this.activeTask.setMetricMode(mode);
+    this.broadcast({ type: 'metric_mode_changed', ts: Date.now(), snapshot: this.getSnapshot() });
+  }
+
+  updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, curveWindowMinutes }) {
+    if (launchStartTime != null && Number.isFinite(Number(launchStartTime))) {
+      this.runtimeConfig.launchStartTime = Number(launchStartTime);
     }
+    if (walletAddress != null) {
+      const value = String(walletAddress).trim().toLowerCase();
+      this.runtimeConfig.walletAddress = value;
+    }
+    if (sellTaxPct != null && Number.isFinite(Number(sellTaxPct))) {
+      this.runtimeConfig.sellTaxPct = Number(sellTaxPct);
+    }
+    if (curveWindowMinutes != null && Number.isFinite(Number(curveWindowMinutes))) {
+      this.runtimeConfig.curveWindowMinutes = Math.max(10, Math.min(120, Number(curveWindowMinutes)));
+    }
+
+    this.broadcast({
+      type: 'runtime_updated',
+      ts: Date.now(),
+      snapshot: this.getSnapshot(),
+      runtime: this.runtimeConfig,
+    });
+
+    return this.runtimeConfig;
   }
 
   getSnapshot() {
