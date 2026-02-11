@@ -57,6 +57,8 @@ export const config = {
   sellTaxPct: envNumber('SELL_TAX_PCT', 1),
   launchStartTime: envNumber('LAUNCH_START_TIME', 0),
   walletAddress: String(process.env.MY_WALLET_ADDRESS || '').toLowerCase(),
+  myWalletFromBlock: envNumber('MY_WALLET_FROM_BLOCK', 0),
+  myWalletMaxBackfillBlocks: envNumber('MY_WALLET_MAX_BACKFILL_BLOCKS', 500000),
   curveWindowMinutes: envNumber('CURVE_WINDOW_MINUTES', 30),
 
   useWsHead: envBool('USE_WS_NEW_HEADS', true),

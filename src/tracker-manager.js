@@ -27,6 +27,7 @@ export class TrackerManager {
     this.specialAddresses = this._loadSpecialAddresses();
 
     this.activeTask = null;
+    this.activeTaskId = 0;
     this.taskPromise = null;
     this.subscribers = new Set();
   }
@@ -79,7 +80,10 @@ export class TrackerManager {
   }
 
   async start(tokenAddress) {
-    await this.stop();
+    await this.stop({ waitMs: 4000 });
+
+    const taskId = Date.now();
+    this.activeTaskId = taskId;
 
     this.activeTask = new TokenTrackerTask({
       tokenAddress,
@@ -88,11 +92,15 @@ export class TrackerManager {
       ruleEngine: this.ruleEngine,
       runtimeConfig: this.runtimeConfig,
       specialAddresses: this.specialAddresses,
-      onUpdate: (payload) => this.broadcast(payload),
+      onUpdate: (payload) => {
+        if (this.activeTaskId !== taskId) return;
+        this.broadcast(payload);
+      },
     });
 
     this.taskPromise = this.activeTask.start().catch((err) => {
       logger.error('task crashed', { error: String(err?.message || err) });
+      if (this.activeTaskId !== taskId) return;
       this.broadcast({
         type: 'error',
         ts: Date.now(),
@@ -104,18 +112,28 @@ export class TrackerManager {
     return this.getStatus();
   }
 
-  async stop() {
+  async stop({ waitMs = 5000 } = {}) {
     if (!this.activeTask) return;
-    await this.activeTask.stop();
-    if (this.taskPromise) {
-      try {
-        await this.taskPromise;
-      } catch {
-        // ignore
-      }
-    }
+    const taskToStop = this.activeTask;
+    const promiseToWait = this.taskPromise;
+    this.activeTaskId = 0;
     this.activeTask = null;
     this.taskPromise = null;
+    await taskToStop.stop();
+
+    if (!promiseToWait) return;
+    try {
+      if (waitMs > 0) {
+        await Promise.race([
+          promiseToWait,
+          new Promise((resolve) => setTimeout(resolve, waitMs)),
+        ]);
+      } else {
+        await promiseToWait;
+      }
+    } catch {
+      // ignore
+    }
   }
 
   setMetricMode(mode) {

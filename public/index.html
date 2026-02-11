@@ -1,8 +1,16 @@
 ﻿<!doctype html>
 <html lang="zh-CN">
-  <head>
+    <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Virtuals Sniping Decision Console</title>
     <style>
       :root {
@@ -51,6 +59,146 @@
         cursor: pointer;
       }
       .btn.active { outline: 2px solid rgba(101,194,255,.8); }
+      .btn.btn-light {
+        background: rgba(96, 132, 170, .26);
+        color: #d8e9f8;
+        padding: 10px 10px;
+      }
+      .btn.btn-light:hover { background: rgba(96, 132, 170, .4); }
+      .launch-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+      }
+      .launch-label {
+        color: #9bb7d0;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .launch-display {
+        min-width: 182px;
+        text-align: left;
+        background: rgba(10, 22, 36, .9);
+        outline: 1px solid rgba(123, 164, 205, .2);
+      }
+      .launch-fallback {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+      }
+      .launch-modal {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 40;
+      }
+      .launch-modal.hidden { display: none; }
+      .launch-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(2, 7, 13, .58);
+        backdrop-filter: blur(3px);
+      }
+      .launch-sheet {
+        position: relative;
+        width: min(760px, calc(100vw - 24px));
+        border-radius: 18px;
+        padding: 14px;
+        background: linear-gradient(180deg, rgba(21, 37, 58, .82), rgba(14, 26, 44, .86));
+        border: 1px solid rgba(158, 197, 233, .2);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, .45);
+      }
+      .launch-sheet-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .launch-sheet-title { font-size: 14px; color: #d8ecff; }
+      .launch-sheet-close {
+        border: none;
+        border-radius: 10px;
+        width: 32px;
+        height: 32px;
+        color: #d4e6f9;
+        background: rgba(117, 152, 186, .16);
+        cursor: pointer;
+      }
+      .launch-sheet-value {
+        margin-top: 8px;
+        color: #aad0ee;
+        font-size: 13px;
+      }
+      .wheel-stage {
+        --wheel-item-h: 40px;
+        position: relative;
+        margin-top: 10px;
+        height: calc(var(--wheel-item-h) * 3);
+        display: grid;
+        grid-template-columns: 1.4fr 1fr 1fr;
+        gap: 8px;
+      }
+      .wheel-focus {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: var(--wheel-item-h);
+        height: var(--wheel-item-h);
+        border-radius: 10px;
+        border: 1px solid rgba(103, 169, 224, .4);
+        background: linear-gradient(180deg, rgba(77, 136, 186, .16), rgba(77, 136, 186, .1));
+        pointer-events: none;
+      }
+      .wheel-col {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(10, 20, 33, .65);
+      }
+      .wheel-col-title {
+        position: absolute;
+        top: 4px;
+        left: 8px;
+        z-index: 2;
+        font-size: 11px;
+        color: #8eaaca;
+      }
+      .wheel-list {
+        height: calc(var(--wheel-item-h) * 3);
+        overflow-y: auto;
+        scroll-snap-type: y mandatory;
+        scrollbar-width: none;
+      }
+      .wheel-list::-webkit-scrollbar { display: none; }
+      .wheel-track { padding: var(--wheel-item-h) 0; }
+      .wheel-item {
+        height: var(--wheel-item-h);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: #9db7d0;
+        scroll-snap-align: center;
+        user-select: none;
+      }
+      .wheel-item.active {
+        color: #eaf5ff;
+        font-weight: 700;
+      }
+      .launch-sheet-actions {
+        margin-top: 12px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .btn.btn-subtle {
+        background: rgba(96, 132, 170, .2);
+        color: #c6ddf2;
+      }
       .status {
         margin-top: 8px;
         display: grid;
@@ -63,6 +211,17 @@
         border-radius: 8px;
         padding: 8px 10px;
       }
+      .hint {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        color: #c7d9eb;
+        background: rgba(120, 151, 182, .12);
+      }
+      .hint.ok { color: #bdeecf; background: rgba(78, 215, 141, .14); }
+      .hint.warn { color: #ffd89d; background: rgba(240, 193, 86, .14); }
+      .hint.err { color: #ffb5c2; background: rgba(255, 94, 120, .14); }
 
       .hero {
         margin-top: 10px;
@@ -117,7 +276,12 @@
       <div class="card">
         <div class="row">
           <input id="tokenInput" class="input grow mono" placeholder="Token CA (0x...)" />
-          <input id="launchInput" class="input mono" style="width:170px" placeholder="Launch TS(sec)" />
+          <div class="launch-control">
+            <span class="launch-label">Launch Start Time</span>
+            <button id="launchDisplayBtn" class="btn launch-display mono" type="button" aria-haspopup="dialog" aria-controls="launchModal">-</button>
+            <button id="setNowBtn" class="btn btn-light" type="button">Set Now</button>
+            <input type="datetime-local" id="launchStart" class="input mono launch-fallback" aria-label="Launch Start Time fallback" />
+          </div>
           <input id="walletInput" class="input mono" style="width:220px" placeholder="My Wallet (0x...)" />
           <input id="sellTaxInput" class="input mono" style="width:110px" placeholder="SellTax %" value="1" />
           <button id="startBtn" class="btn">开始追踪</button>
@@ -129,6 +293,7 @@
           <div id="tokenPill" class="pill mono">Token: -</div>
           <div id="statusPill" class="pill mono">Status: stopped | Block: -</div>
         </div>
+        <div id="actionHint" class="hint">Ready.</div>
       </div>
 
       <div class="hero">
@@ -207,12 +372,56 @@
       </div>
     </div>
 
+    <div id="launchModal" class="launch-modal hidden" role="dialog" aria-modal="true" aria-labelledby="launchSheetTitle">
+      <div id="launchBackdrop" class="launch-backdrop"></div>
+      <div class="launch-sheet">
+        <div class="launch-sheet-header">
+          <div id="launchSheetTitle" class="launch-sheet-title">Select Launch Start Time</div>
+          <button id="launchCloseBtn" class="launch-sheet-close" type="button" aria-label="Close">X</button>
+        </div>
+        <div id="launchSheetValue" class="launch-sheet-value mono">-</div>
+        <div class="wheel-stage">
+          <div class="wheel-focus"></div>
+          <div class="wheel-col">
+            <div class="wheel-col-title">Date</div>
+            <div id="wheelDate" class="wheel-list" role="listbox" aria-label="Date"></div>
+          </div>
+          <div class="wheel-col">
+            <div class="wheel-col-title">Hour</div>
+            <div id="wheelHour" class="wheel-list" role="listbox" aria-label="Hour"></div>
+          </div>
+          <div class="wheel-col">
+            <div class="wheel-col-title">Minute</div>
+            <div id="wheelMinute" class="wheel-list" role="listbox" aria-label="Minute"></div>
+          </div>
+        </div>
+        <div class="launch-sheet-actions">
+          <button id="launchCancelBtn" class="btn btn-subtle" type="button">Cancel</button>
+          <button id="launchConfirmBtn" class="btn" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const $ = (id) => document.getElementById(id);
       const tokenInput = $('tokenInput');
-      const launchInput = $('launchInput');
+      const launchInput = $('launchStart');
       const walletInput = $('walletInput');
       const sellTaxInput = $('sellTaxInput');
+      const launchDisplayBtn = $('launchDisplayBtn');
+      const setNowBtn = $('setNowBtn');
+      const startBtn = $('startBtn');
+      const stopBtn = $('stopBtn');
+      const actionHint = $('actionHint');
+      const launchModal = $('launchModal');
+      const launchBackdrop = $('launchBackdrop');
+      const launchCloseBtn = $('launchCloseBtn');
+      const launchCancelBtn = $('launchCancelBtn');
+      const launchConfirmBtn = $('launchConfirmBtn');
+      const launchSheetValue = $('launchSheetValue');
+      const wheelDate = $('wheelDate');
+      const wheelHour = $('wheelHour');
+      const wheelMinute = $('wheelMinute');
       const tokenPill = $('tokenPill');
       const statusPill = $('statusPill');
       const ruleState = $('ruleState');
@@ -232,6 +441,211 @@
 
       let latest = null;
       let flashUntil = 0;
+      const LAUNCH_START_KEY = 'launchStartTime';
+      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+      const WHEEL_ITEM_HEIGHT = 40;
+      const pickerState = {
+        dateOptions: [],
+        hourOptions: Array.from({ length: 24 }, (_, i) => i),
+        minuteOptions: Array.from({ length: 60 }, (_, i) => i),
+        selectedDateIndex: 0,
+        selectedHourIndex: 0,
+        selectedMinuteIndex: 0,
+      };
+      const wheelTimers = {};
+      const LS_TOKEN_KEY = 'lastTrackedToken';
+      const LS_WALLET_KEY = 'lastWalletAddress';
+      let eventSource = null;
+      let sseRetryTimer = null;
+      let startBusy = false;
+      let stopBusy = false;
+
+      function toLocalDatetimeValue(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const hh = String(date.getHours()).padStart(2, '0');
+        const mm = String(date.getMinutes()).padStart(2, '0');
+        return `${y}-${m}-${d}T${hh}:${mm}`;
+      }
+
+      function formatLocalDisplayFromSeconds(sec) {
+        if (!Number.isFinite(sec) || sec <= 0) return '-';
+        const d = new Date(sec * 1000);
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${y}-${mo}-${da} ${hh}:${mm}`;
+      }
+
+      function parseLaunchStartSeconds() {
+        if (!launchInput.value) return 0;
+        const ms = new Date(launchInput.value).getTime();
+        if (!Number.isFinite(ms)) return 0;
+        return Math.floor(ms / 1000);
+      }
+
+      function setLaunchInputBySeconds(sec) {
+        if (!Number.isFinite(sec) || sec <= 0) return;
+        launchInput.value = toLocalDatetimeValue(new Date(sec * 1000));
+        launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(sec);
+      }
+
+      function computeBuyTaxPctFromStart(startSec) {
+        if (!Number.isFinite(startSec) || startSec <= 0) return 1;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const minutes = Math.floor((nowSec - startSec) / 60);
+        return clamp(99 - minutes, 1, 99);
+      }
+
+      async function applyLaunchStartChange(pushRuntime = true) {
+        const startSec = parseLaunchStartSeconds();
+        localStorage.setItem(LAUNCH_START_KEY, String(startSec));
+        launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(startSec);
+
+        if (latest) {
+          latest.tax = latest.tax || {};
+          latest.tax.buy_tax_pct = computeBuyTaxPctFromStart(startSec);
+          latest.tax.launch_start_time = startSec;
+          renderSnapshot(latest);
+        }
+
+        if (!pushRuntime) return;
+        try {
+          const d = await post('/api/settings/runtime', {
+            launch_start_time: startSec,
+            wallet_address: walletInput.value.trim(),
+            sell_tax_pct: Number(sellTaxInput.value || 1),
+          });
+          if (d?.snapshot) renderSnapshot(d.snapshot);
+        } catch {}
+      }
+
+      function initLaunchStartInput() {
+        const saved = Number(localStorage.getItem(LAUNCH_START_KEY) || 0);
+        if (saved > 0) {
+          setLaunchInputBySeconds(saved);
+        } else {
+          const nowSec = Math.floor(Date.now() / 1000);
+          setLaunchInputBySeconds(nowSec);
+          localStorage.setItem(LAUNCH_START_KEY, String(nowSec));
+        }
+      }
+
+      function startOfLocalDay(d) {
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+      }
+
+      function sameLocalDay(a, b) {
+        return a.getFullYear() === b.getFullYear()
+          && a.getMonth() === b.getMonth()
+          && a.getDate() === b.getDate();
+      }
+
+      function buildDateOptions() {
+        const now = new Date();
+        const today = startOfLocalDay(now);
+        const list = [];
+        for (let i = 0; i < 7; i += 1) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          let label = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (i === 0) label = '今天';
+          if (i === 1) label = '昨天';
+          list.push({ date: d, label });
+        }
+        return list;
+      }
+
+      function renderWheel(wheelEl, options, labelFn) {
+        const items = options.map((opt, idx) => `<div class="wheel-item" data-idx="${idx}">${labelFn(opt)}</div>`).join('');
+        wheelEl.innerHTML = `<div class="wheel-track">${items}</div>`;
+      }
+
+      function markWheelSelected(wheelEl, idx) {
+        wheelEl.querySelectorAll('.wheel-item').forEach((el, i) => {
+          el.classList.toggle('active', i === idx);
+        });
+      }
+
+      function scrollWheelToIndex(wheelEl, idx, smooth = false) {
+        wheelEl.scrollTo({
+          top: idx * WHEEL_ITEM_HEIGHT,
+          behavior: smooth ? 'smooth' : 'auto',
+        });
+        markWheelSelected(wheelEl, idx);
+      }
+
+      function getPickerSelectedDate() {
+        const dateObj = pickerState.dateOptions[pickerState.selectedDateIndex]?.date || startOfLocalDay(new Date());
+        const h = pickerState.hourOptions[pickerState.selectedHourIndex] || 0;
+        const m = pickerState.minuteOptions[pickerState.selectedMinuteIndex] || 0;
+        return new Date(
+          dateObj.getFullYear(),
+          dateObj.getMonth(),
+          dateObj.getDate(),
+          h,
+          m,
+          0,
+          0
+        );
+      }
+
+      function updatePickerPreview() {
+        launchSheetValue.textContent = formatLocalDisplayFromSeconds(Math.floor(getPickerSelectedDate().getTime() / 1000));
+      }
+
+      function bindWheel(wheelEl, key, length) {
+        wheelEl.addEventListener('scroll', () => {
+          clearTimeout(wheelTimers[key]);
+          const idx = clamp(Math.round(wheelEl.scrollTop / WHEEL_ITEM_HEIGHT), 0, length - 1);
+          wheelTimers[key] = setTimeout(() => {
+            if (key === 'date') pickerState.selectedDateIndex = idx;
+            if (key === 'hour') pickerState.selectedHourIndex = idx;
+            if (key === 'minute') pickerState.selectedMinuteIndex = idx;
+            scrollWheelToIndex(wheelEl, idx, true);
+            updatePickerPreview();
+          }, 70);
+        }, { passive: true });
+      }
+
+      function openLaunchModal() {
+        pickerState.dateOptions = buildDateOptions();
+        renderWheel(wheelDate, pickerState.dateOptions, (x) => x.label);
+        renderWheel(wheelHour, pickerState.hourOptions, (x) => String(x).padStart(2, '0'));
+        renderWheel(wheelMinute, pickerState.minuteOptions, (x) => String(x).padStart(2, '0'));
+
+        const base = parseLaunchStartSeconds() > 0 ? new Date(parseLaunchStartSeconds() * 1000) : new Date();
+        const foundDateIdx = pickerState.dateOptions.findIndex((x) => sameLocalDay(x.date, base));
+        pickerState.selectedDateIndex = foundDateIdx >= 0 ? foundDateIdx : 0;
+        pickerState.selectedHourIndex = base.getHours();
+        pickerState.selectedMinuteIndex = base.getMinutes();
+
+        scrollWheelToIndex(wheelDate, pickerState.selectedDateIndex, false);
+        scrollWheelToIndex(wheelHour, pickerState.selectedHourIndex, false);
+        scrollWheelToIndex(wheelMinute, pickerState.selectedMinuteIndex, false);
+        updatePickerPreview();
+
+        launchModal.classList.remove('hidden');
+      }
+
+      function closeLaunchModal() {
+        launchModal.classList.add('hidden');
+      }
+
+      function setHint(text, level = '') {
+        actionHint.textContent = text;
+        actionHint.className = `hint${level ? ` ${level}` : ''}`;
+      }
+
+      function setButtonBusy(btn, busy, busyText, idleText) {
+        btn.disabled = busy;
+        btn.textContent = busy ? busyText : idleText;
+        btn.style.opacity = busy ? '0.7' : '1';
+        btn.style.cursor = busy ? 'not-allowed' : 'pointer';
+      }
 
       function shortAddr(v) {
         if (!v) return '-';
@@ -395,34 +809,104 @@
         renderSpecial(snapshot);
       }
 
-      async function post(url, body) {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body || {}),
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'request failed');
+      async function post(url, body, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+            signal: controller.signal,
+          });
+          let d = null;
+          try { d = await r.json(); } catch { d = {}; }
+          if (!r.ok) throw new Error(d.error || 'request failed');
+          return d;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function refreshStatusOnce() {
+        const d = await fetch('/api/status', { cache: 'no-store' }).then((r) => r.json());
+        if (d?.snapshot) renderSnapshot(d.snapshot);
         return d;
       }
 
-      $('startBtn').addEventListener('click', async () => {
+      startBtn.addEventListener('click', async () => {
+        if (startBusy) return;
         try {
+          const token = tokenInput.value.trim();
+          if (!/^0x[a-fA-F0-9]{40}$/.test(token)) {
+            setHint('Token 地址格式无效，请输入 0x 开头的 42 位地址。', 'err');
+            return;
+          }
+          startBusy = true;
+          setButtonBusy(startBtn, true, '启动中...', '开始追踪');
+          setHint('正在启动追踪任务并进行回扫...', 'warn');
+
           const payload = {
-            token_address: tokenInput.value.trim(),
-            launch_start_time: Number(launchInput.value || 0),
+            token_address: token,
+            launch_start_time: parseLaunchStartSeconds(),
             wallet_address: walletInput.value.trim(),
             sell_tax_pct: Number(sellTaxInput.value || 1),
           };
-          const d = await post('/api/track/start', payload);
+          const d = await post('/api/track/start', payload, 30000);
           renderSnapshot(d.snapshot);
+          localStorage.setItem(LS_TOKEN_KEY, token);
+          localStorage.setItem(LS_WALLET_KEY, walletInput.value.trim());
+          setHint('追踪已启动。', 'ok');
         } catch (e) {
-          alert(e.message || String(e));
+          const msg = String(e?.message || e || '');
+          if (msg.toLowerCase().includes('abort')) {
+            try {
+              const st = await refreshStatusOnce();
+              if (st?.status?.running) {
+                setHint('启动请求超时，但任务已在后台运行。', 'warn');
+              } else {
+                setHint('启动超时，任务可能未成功启动。', 'err');
+              }
+            } catch {
+              setHint('启动超时，且状态回查失败。', 'err');
+            }
+          } else {
+            setHint(`启动失败: ${msg}`, 'err');
+          }
+        } finally {
+          startBusy = false;
+          setButtonBusy(startBtn, false, '启动中...', '开始追踪');
         }
       });
 
-      $('stopBtn').addEventListener('click', async () => {
-        await post('/api/track/stop', {});
+      stopBtn.addEventListener('click', async () => {
+        if (stopBusy) return;
+        try {
+          stopBusy = true;
+          setButtonBusy(stopBtn, true, '停止中...', '停止');
+          setHint('正在停止追踪任务...', 'warn');
+          await post('/api/track/stop', {}, 15000);
+          const st = await fetch('/api/status').then((r) => r.json());
+          if (st?.snapshot) renderSnapshot(st.snapshot);
+          statusPill.textContent = 'Status: stopped | Block: -';
+          setHint('追踪已停止。', 'ok');
+        } catch (e) {
+          const msg = String(e?.message || e || '');
+          if (msg.toLowerCase().includes('abort')) {
+            try {
+              const st = await refreshStatusOnce();
+              if (!st?.status?.running) setHint('停止请求超时，但任务已停止。', 'warn');
+              else setHint('停止超时，任务可能仍在运行。', 'err');
+            } catch {
+              setHint('停止超时，且状态回查失败。', 'err');
+            }
+          } else {
+            setHint(`停止失败: ${msg}`, 'err');
+          }
+        } finally {
+          stopBusy = false;
+          setButtonBusy(stopBtn, false, '停止中...', '停止');
+        }
       });
 
       document.querySelectorAll('[data-mode]').forEach((b) => {
@@ -432,33 +916,107 @@
         });
       });
 
-      [launchInput, walletInput, sellTaxInput].forEach((el) => {
+      [walletInput, sellTaxInput].forEach((el) => {
         el.addEventListener('change', async () => {
           try {
             await post('/api/settings/runtime', {
-              launch_start_time: Number(launchInput.value || 0),
+              launch_start_time: parseLaunchStartSeconds(),
               wallet_address: walletInput.value.trim(),
               sell_tax_pct: Number(sellTaxInput.value || 1),
             });
+            setHint('运行参数已更新。', 'ok');
           } catch {}
         });
       });
 
-      const es = new EventSource('/api/events');
-      es.addEventListener('update', (ev) => {
-        const p = JSON.parse(ev.data);
-        renderSnapshot(p.snapshot);
+      launchInput.addEventListener('change', () => {
+        applyLaunchStartChange(true);
       });
-      es.addEventListener('signal', (ev) => {
-        const p = JSON.parse(ev.data);
-        flashUntil = Date.now() + 10000;
-        renderSnapshot(p.snapshot);
-      });
-      es.onerror = () => {
-        statusPill.textContent = 'Status: disconnected | Block: -';
-      };
 
-      fetch('/api/status').then((r) => r.json()).then((d) => renderSnapshot(d.snapshot)).catch(() => {});
+      launchDisplayBtn.addEventListener('click', () => {
+        openLaunchModal();
+      });
+
+      setNowBtn.addEventListener('click', () => {
+        const nowSec = Math.floor(Date.now() / 1000);
+        setLaunchInputBySeconds(nowSec);
+        applyLaunchStartChange(true);
+        setHint('已设置为当前时间。', 'ok');
+      });
+
+      launchBackdrop.addEventListener('click', () => closeLaunchModal());
+      launchCloseBtn.addEventListener('click', () => closeLaunchModal());
+      launchCancelBtn.addEventListener('click', () => closeLaunchModal());
+      launchConfirmBtn.addEventListener('click', () => {
+        const sec = Math.floor(getPickerSelectedDate().getTime() / 1000);
+        setLaunchInputBySeconds(sec);
+        closeLaunchModal();
+        applyLaunchStartChange(true);
+      });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !launchModal.classList.contains('hidden')) {
+          closeLaunchModal();
+        }
+      });
+
+      bindWheel(wheelDate, 'date', 7);
+      bindWheel(wheelHour, 'hour', 24);
+      bindWheel(wheelMinute, 'minute', 60);
+
+      function connectEvents() {
+        if (eventSource) {
+          try { eventSource.close(); } catch {}
+          eventSource = null;
+        }
+        eventSource = new EventSource('/api/events');
+        eventSource.addEventListener('connected', () => {
+          setHint('实时流已连接。', 'ok');
+        });
+        eventSource.addEventListener('update', (ev) => {
+          const p = JSON.parse(ev.data);
+          renderSnapshot(p.snapshot);
+        });
+        eventSource.addEventListener('signal', (ev) => {
+          const p = JSON.parse(ev.data);
+          flashUntil = Date.now() + 10000;
+          renderSnapshot(p.snapshot);
+        });
+        eventSource.onerror = () => {
+          statusPill.textContent = 'Status: disconnected | Block: -';
+          setHint('实时流断开，正在重连...', 'warn');
+          try { eventSource.close(); } catch {}
+          eventSource = null;
+          clearTimeout(sseRetryTimer);
+          sseRetryTimer = setTimeout(connectEvents, 2500);
+        };
+      }
+
+      initLaunchStartInput();
+      applyLaunchStartChange(true);
+      const savedToken = localStorage.getItem(LS_TOKEN_KEY);
+      const savedWallet = localStorage.getItem(LS_WALLET_KEY);
+      if (savedToken) tokenInput.value = savedToken;
+      if (savedWallet) walletInput.value = savedWallet;
+      connectEvents();
+
+      fetch('/api/status').then((r) => r.json()).then((d) => {
+        renderSnapshot(d.snapshot);
+      }).catch(() => {
+        setHint('获取初始状态失败，请检查后端服务。', 'err');
+      });
+
+      window.addEventListener('beforeunload', () => {
+        if (eventSource) {
+          try { eventSource.close(); } catch {}
+        }
+      });
     </script>
   </body>
 </html>
+
+
+
+
+
+
+
