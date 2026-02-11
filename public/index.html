@@ -24,12 +24,17 @@
         --warn: #f0c156;
         --wait: #7d8b9a;
         --danger: #ff5e78;
+        --font-sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        --font-mono: "JetBrains Mono", "Cascadia Mono", "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         color: var(--text);
-        font-family: Segoe UI, Arial, sans-serif;
+        font-family: var(--font-sans);
+        letter-spacing: .01em;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
         background: radial-gradient(1200px 500px at 15% -20%, #1a3d60 0%, #0d1a2a 45%, var(--bg) 100%);
       }
       .wrap { max-width: 1400px; margin: 0 auto; padding: 16px; }
@@ -40,6 +45,35 @@
         box-shadow: 0 8px 24px rgba(0,0,0,.22);
       }
       .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .topline {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 8px;
+      }
+      .lang-switch {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        border-radius: 999px;
+        background: rgba(19, 38, 60, .85);
+        outline: 1px solid rgba(123, 164, 205, .25);
+      }
+      .lang-switch .lang-btn {
+        border: none;
+        border-radius: 999px;
+        min-width: 42px;
+        height: 28px;
+        padding: 0 10px;
+        background: transparent;
+        color: #b7d3ea;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .lang-switch .lang-btn.active {
+        background: rgba(101,194,255,.22);
+        color: #e8f4ff;
+      }
       .input {
         background: #0b1523;
         border: none;
@@ -47,8 +81,9 @@
         color: var(--text);
         padding: 10px 12px;
         outline: 1px solid rgba(123, 164, 205, .2);
+        font-family: inherit;
       }
-      .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .mono { font-family: var(--font-mono); letter-spacing: 0; }
       .grow { flex: 1; min-width: 280px; }
       .btn {
         border: none;
@@ -127,6 +162,7 @@
         color: #d4e6f9;
         background: rgba(117, 152, 186, .16);
         cursor: pointer;
+        font-family: inherit;
       }
       .launch-sheet-value {
         margin-top: 8px;
@@ -158,6 +194,22 @@
         border-radius: 12px;
         overflow: hidden;
         background: rgba(10, 20, 33, .65);
+      }
+      .wheel-col-controls {
+        margin-top: 6px;
+        display: flex;
+        gap: 6px;
+        justify-content: center;
+      }
+      .wheel-step-btn {
+        border: 1px solid rgba(127, 170, 212, .28);
+        background: rgba(16, 31, 48, .9);
+        color: #d2e7fa;
+        border-radius: 8px;
+        padding: 2px 8px;
+        font-size: 12px;
+        line-height: 1.2;
+        cursor: pointer;
       }
       .wheel-col-title {
         position: absolute;
@@ -353,47 +405,53 @@
   <body>
     <div class="wrap">
       <div class="card">
-        <div class="row">
-          <input id="tokenInput" class="input grow mono" placeholder="Token CA (0x...)" />
-          <div class="launch-control">
-            <span class="launch-label">Launch Start Time</span>
-            <button id="launchDisplayBtn" class="btn launch-display mono" type="button" aria-haspopup="dialog" aria-controls="launchModal">-</button>
-            <button id="setNowBtn" class="btn btn-light" type="button">Set Now</button>
-            <input type="datetime-local" id="launchStart" class="input mono launch-fallback" aria-label="Launch Start Time fallback" />
+        <div class="topline">
+          <div class="lang-switch" role="group" aria-label="language switch">
+            <button id="langZhBtn" class="lang-btn active" type="button">中</button>
+            <button id="langEnBtn" class="lang-btn" type="button">EN</button>
           </div>
-          <input id="walletInput" class="input mono" style="width:220px" placeholder="My Wallet (0x...)" />
-          <input id="sellTaxInput" class="input mono" style="width:110px" placeholder="SellTax %" value="1" />
-          <button id="startBtn" class="btn">开始追踪</button>
-          <button id="stopBtn" class="btn">停止</button>
-          <button id="modeToken" class="btn active" data-mode="token_received">口径 Token</button>
-          <button id="modeVirtual" class="btn" data-mode="virtual_spent">口径 Virtual</button>
+        </div>
+        <div class="row">
+          <input id="tokenInput" class="input grow" placeholder="Token CA (0x...)" data-i18n-ph="ph_token" />
+          <div class="launch-control">
+            <span class="launch-label" data-i18n="launch_label">Launch Start Time</span>
+            <button id="launchDisplayBtn" class="btn launch-display mono" type="button" aria-haspopup="dialog" aria-controls="launchModal">-</button>
+            <button id="setNowBtn" class="btn btn-light" type="button" data-i18n="set_now">Set Now</button>
+            <input type="datetime-local" id="launchStart" class="input mono launch-fallback" aria-label="Launch Start Time fallback" data-i18n-aria="launch_fallback_aria" />
+          </div>
+          <input id="walletInput" class="input" style="width:220px" placeholder="My Wallet (0x...)" data-i18n-ph="ph_wallet" />
+          <input id="sellTaxInput" class="input" style="width:110px" placeholder="SellTax %" value="1" data-i18n-ph="ph_sell_tax" />
+          <button id="startBtn" class="btn" data-i18n="start_track">开始追踪</button>
+          <button id="stopBtn" class="btn" data-i18n="stop_track">停止</button>
+          <button id="modeToken" class="btn active" data-mode="token_received" data-i18n="mode_token">口径 Token</button>
+          <button id="modeVirtual" class="btn" data-mode="virtual_spent" data-i18n="mode_virtual">口径 Virtual</button>
         </div>
         <div class="wallet-cfg">
-          <textarea id="myWalletsInput" class="input mono wallet-textarea" placeholder="Add wallet addresses (one per line)"></textarea>
+          <textarea id="myWalletsInput" class="input wallet-textarea" placeholder="Add wallet addresses (one per line)" data-i18n-ph="ph_wallets"></textarea>
           <div class="wallet-actions">
-            <input id="myWalletFromBlockInput" class="input mono" style="width:170px" placeholder="My FromBlock" />
-            <button id="myWalletApplyBtn" class="btn btn-light" type="button">Add Wallets</button>
-            <button id="myWalletClearBtn" class="btn btn-light" type="button">Clear Wallets</button>
+            <input id="myWalletFromBlockInput" class="input" style="width:170px" placeholder="My FromBlock" data-i18n-ph="ph_from_block" />
+            <button id="myWalletApplyBtn" class="btn btn-light" type="button" data-i18n="add_wallets">Add Wallets</button>
+            <button id="myWalletClearBtn" class="btn btn-light" type="button" data-i18n="clear_wallets">Clear Wallets</button>
           </div>
         </div>
         <div id="myWalletTags" class="wallet-tags"></div>
         <div class="mywallet-card">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">
-            My Wallets
+            <span data-i18n="my_wallets">My Wallets</span>
             <span id="myWalletStatusChip" class="status-chip">idle</span>
           </div>
           <div class="table-wrap" style="max-height:none;">
             <table>
               <thead>
                 <tr>
-                  <th>Scope</th>
-                  <th>Balance</th>
-                  <th>Spent V</th>
-                  <th>Recv T</th>
-                  <th>Cost</th>
-                  <th>Eff Cost</th>
-                  <th>BE MCAP</th>
-                  <th>Last Active</th>
+                  <th data-i18n="th_scope">Scope</th>
+                  <th data-i18n="th_balance">Balance</th>
+                  <th data-i18n="th_spent_v">Spent V</th>
+                  <th data-i18n="th_recv_t">Recv T</th>
+                  <th data-i18n="th_cost">Cost</th>
+                  <th data-i18n="th_eff_cost">Eff Cost</th>
+                  <th data-i18n="th_be_mcap">BE MCAP</th>
+                  <th data-i18n="th_last_active">Last Active</th>
                 </tr>
               </thead>
               <tbody id="myWalletTotalBody"></tbody>
@@ -403,14 +461,14 @@
             <table>
               <thead>
                 <tr>
-                  <th>Address</th>
-                  <th>Balance</th>
-                  <th>Spent V</th>
-                  <th>Recv T</th>
-                  <th>Cost</th>
-                  <th>Eff Cost</th>
-                  <th>BE MCAP</th>
-                  <th>Last Active</th>
+                  <th data-i18n="th_address">Address</th>
+                  <th data-i18n="th_balance">Balance</th>
+                  <th data-i18n="th_spent_v">Spent V</th>
+                  <th data-i18n="th_recv_t">Recv T</th>
+                  <th data-i18n="th_cost">Cost</th>
+                  <th data-i18n="th_eff_cost">Eff Cost</th>
+                  <th data-i18n="th_be_mcap">BE MCAP</th>
+                  <th data-i18n="th_last_active">Last Active</th>
                 </tr>
               </thead>
               <tbody id="myWalletBody"></tbody>
@@ -422,12 +480,12 @@
           <div id="statusPill" class="pill mono">Status: stopped | Block: -</div>
           <div id="transferPill" class="pill mono">Transfers: -</div>
         </div>
-        <div id="actionHint" class="hint">Ready.</div>
+        <div id="actionHint" class="hint" data-i18n="hint_ready">Ready.</div>
       </div>
 
       <div class="hero">
         <div class="card">
-          <div class="rule-title">规则状态</div>
+          <div class="rule-title" data-i18n="rule_title">规则状态</div>
           <div id="ruleState" class="rule-state s-wait">等待中</div>
           <div id="ruleDesc" style="font-size:12px;color:#9fb8ce;margin-top:5px;">等待连续两分钟突破 3000 / 6000</div>
           <div id="taxNow" style="margin-top:8px;font-size:13px;color:#c7e6ff;">当前买入税率: 1%</div>
@@ -447,31 +505,31 @@
 
         <div class="card">
           <div class="kpis">
-            <div class="kpi"><div class="k">1m Taxed Vol</div><div id="kpi1" class="v">0</div></div>
-            <div class="kpi"><div class="k">2m Seq</div><div id="kpi2" class="v">0</div></div>
-            <div class="kpi"><div class="k">5m Taxed Vol</div><div id="kpi5" class="v">0</div></div>
-            <div class="kpi"><div class="k">Cooldown</div><div id="kpiCd" class="v">Ready</div></div>
-            <div class="kpi"><div class="k">My RMV</div><div id="kpiRmv" class="v">0</div></div>
-            <div class="kpi"><div class="k">My Cost</div><div id="kpiCost" class="v">0</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_1m">1m Taxed Vol</div><div id="kpi1" class="v">0</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_2m">2m Seq</div><div id="kpi2" class="v">0</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_5m">5m Taxed Vol</div><div id="kpi5" class="v">0</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_cd">Cooldown</div><div id="kpiCd" class="v">Ready</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_rmv">My RMV</div><div id="kpiRmv" class="v">0</div></div>
+            <div class="kpi"><div class="k" data-i18n="kpi_cost">My Cost</div><div id="kpiCost" class="v">0</div></div>
           </div>
         </div>
       </div>
 
       <div class="panel-grid">
         <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Holders</div>
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="holders_title">Holders</div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Address</th>
-                  <th>Balance</th>
-                  <th>Cum In</th>
-                  <th>Cum Out</th>
-                  <th>Share%</th>
+                  <th data-i18n="th_address">Address</th>
+                  <th data-i18n="th_balance">Balance</th>
+                  <th data-i18n="th_cum_in">Cum In</th>
+                  <th data-i18n="th_cum_out">Cum Out</th>
+                  <th data-i18n="th_share">Share%</th>
                   <th>Δ5m</th>
-                  <th>Cost</th>
-                  <th>BE MCAP</th>
+                  <th data-i18n="th_cost">Cost</th>
+                  <th data-i18n="th_be_mcap">BE MCAP</th>
                 </tr>
               </thead>
               <tbody id="holderBody"></tbody>
@@ -480,13 +538,13 @@
         </div>
 
         <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Special Protocol Flows</div>
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="special_title">Special Protocol Flows</div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Label</th>
-                  <th>Category</th>
+                  <th data-i18n="th_label">Label</th>
+                  <th data-i18n="th_category">Category</th>
                   <th>5m V</th>
                   <th>1h V</th>
                   <th>Cum V</th>
@@ -506,28 +564,40 @@
       <div id="launchBackdrop" class="launch-backdrop"></div>
       <div class="launch-sheet">
         <div class="launch-sheet-header">
-          <div id="launchSheetTitle" class="launch-sheet-title">Select Launch Start Time</div>
-          <button id="launchCloseBtn" class="launch-sheet-close" type="button" aria-label="Close">X</button>
+          <div id="launchSheetTitle" class="launch-sheet-title" data-i18n="launch_modal_title">Select Launch Start Time</div>
+          <button id="launchCloseBtn" class="launch-sheet-close" type="button" aria-label="Close" data-i18n-aria="close">X</button>
         </div>
         <div id="launchSheetValue" class="launch-sheet-value mono">-</div>
         <div class="wheel-stage">
           <div class="wheel-focus"></div>
           <div class="wheel-col">
-            <div class="wheel-col-title">Date</div>
+            <div class="wheel-col-title" data-i18n="wheel_date">Date</div>
             <div id="wheelDate" class="wheel-list" role="listbox" aria-label="Date"></div>
+            <div class="wheel-col-controls">
+              <button class="wheel-step-btn" type="button" data-wheel-step="date:-1">-1</button>
+              <button class="wheel-step-btn" type="button" data-wheel-step="date:1">+1</button>
+            </div>
           </div>
           <div class="wheel-col">
-            <div class="wheel-col-title">Hour</div>
+            <div class="wheel-col-title" data-i18n="wheel_hour">Hour</div>
             <div id="wheelHour" class="wheel-list" role="listbox" aria-label="Hour"></div>
+            <div class="wheel-col-controls">
+              <button class="wheel-step-btn" type="button" data-wheel-step="hour:-1">-1</button>
+              <button class="wheel-step-btn" type="button" data-wheel-step="hour:1">+1</button>
+            </div>
           </div>
           <div class="wheel-col">
-            <div class="wheel-col-title">Minute</div>
+            <div class="wheel-col-title" data-i18n="wheel_minute">Minute</div>
             <div id="wheelMinute" class="wheel-list" role="listbox" aria-label="Minute"></div>
+            <div class="wheel-col-controls">
+              <button class="wheel-step-btn" type="button" data-wheel-step="minute:-1">-1</button>
+              <button class="wheel-step-btn" type="button" data-wheel-step="minute:1">+1</button>
+            </div>
           </div>
         </div>
         <div class="launch-sheet-actions">
-          <button id="launchCancelBtn" class="btn btn-subtle" type="button">Cancel</button>
-          <button id="launchConfirmBtn" class="btn" type="button">Confirm</button>
+          <button id="launchCancelBtn" class="btn btn-subtle" type="button" data-i18n="cancel">Cancel</button>
+          <button id="launchConfirmBtn" class="btn" type="button" data-i18n="confirm">Confirm</button>
         </div>
       </div>
     </div>
@@ -547,6 +617,8 @@
       const myWalletFromBlockInput = $('myWalletFromBlockInput');
       const myWalletApplyBtn = $('myWalletApplyBtn');
       const myWalletClearBtn = $('myWalletClearBtn');
+      const langZhBtn = $('langZhBtn');
+      const langEnBtn = $('langEnBtn');
       const myWalletTags = $('myWalletTags');
       const myWalletTotalBody = $('myWalletTotalBody');
       const myWalletBody = $('myWalletBody');
@@ -587,7 +659,7 @@
       const pickerState = {
         dateOptions: [],
         hourOptions: Array.from({ length: 24 }, (_, i) => i),
-        minuteOptions: Array.from({ length: 12 }, (_, i) => i * 5),
+        minuteOptions: Array.from({ length: 60 }, (_, i) => i),
         selectedDateIndex: 0,
         selectedHourIndex: 0,
         selectedMinuteIndex: 0,
@@ -599,6 +671,8 @@
       const LS_MY_WALLETS_KEY = 'myWalletsList';
       const LS_MY_WALLETS_LABELS_KEY = 'myWalletsLabels';
       const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
+      const LS_LANG_KEY = 'uiLang';
+      let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
       let eventSource = null;
       let sseRetryTimer = null;
       let startBusy = false;
@@ -606,6 +680,255 @@
       let myWallets = [];
       let walletLabels = {};
       let launchStartSec = 0;
+      const I18N = {
+        zh: {
+          ph_token: 'Token 合约地址 (0x...)',
+          ph_wallet: '我的钱包 (0x...)',
+          ph_sell_tax: '卖出税 %',
+          ph_wallets: '添加钱包地址（每行一个）',
+          ph_from_block: '我的回扫起始块',
+          launch_label: '开盘时间',
+          launch_fallback_aria: '开盘时间后备输入',
+          set_now: '设为当前',
+          start_track: '开始追踪',
+          stop_track: '停止',
+          mode_token: '口径 Token',
+          mode_virtual: '口径 Virtual',
+          add_wallets: '添加钱包',
+          clear_wallets: '清空钱包',
+          my_wallets: '我的钱包',
+          th_scope: '范围',
+          th_balance: '余额',
+          th_spent_v: '累计花费V',
+          th_recv_t: '累计到手T',
+          th_cost: '成本',
+          th_eff_cost: '有效成本',
+          th_be_mcap: '回本市值',
+          th_last_active: '最后活跃',
+          th_address: '地址',
+          th_cum_in: '累计流入',
+          th_cum_out: '累计流出',
+          th_share: '占比%',
+          th_label: '标签',
+          th_category: '分类',
+          hint_ready: '就绪。',
+          rule_title: '规则状态',
+          kpi_1m: '1分钟税后量',
+          kpi_2m: '2分钟序列',
+          kpi_5m: '5分钟税后量',
+          kpi_cd: '冷却',
+          kpi_rmv: '我的RMV',
+          kpi_cost: '我的成本',
+          holders_title: '持仓榜',
+          special_title: '协议特殊资金流',
+          launch_modal_title: '选择开盘时间',
+          wheel_date: '日期',
+          wheel_hour: '小时',
+          wheel_minute: '分钟',
+          close: '关闭',
+          cancel: '取消',
+          confirm: '确认',
+          status_running: '运行中',
+          status_stopped: '已停止',
+          status_disconnected: '已断开',
+          status_line: '状态: {status} | 区块: {block}',
+          token_line: '代币: {token}',
+          transfers_waiting: '交易: 等待中...',
+          transfers_none: '交易: 当前窗口无转账',
+          transfers_need_virtual: '交易: 请配置 VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS',
+          transfers_logs: '交易: logs {logs} | tx {tx}',
+          transfers_disconnected: '交易: 连接断开',
+          pair: '序列',
+          tax_now: '当前买入税率: {tax}%',
+          cd_ready: '可触发',
+          rule_wait: '等待',
+          rule_wait_desc: '等待连续两分钟突破 3000 / 6000',
+          rule_first: '第一阈值突破',
+          rule_first_desc: '等待第二分钟确认',
+          rule_second: '第二阈值确认',
+          rule_second_desc: '连续两分钟突破成立',
+          rule_trigger: '入场触发',
+          rule_trigger_desc: '规则已触发，进入冷却期',
+          wallet_state_running: '回扫进行中',
+          wallet_state_queued: '回扫排队中',
+          wallet_state_done: '回扫完成',
+          wallet_state_error: '回扫失败',
+          wallet_state_idle: '空闲',
+          wallet_total: '总计',
+          wallet_copy: '复制',
+          wallet_name_placeholder: '备注',
+          wallet_copy_ok: '已复制 {addr}',
+          set_now_ok: '已设置为当前时间。',
+          runtime_updated: '运行参数已更新。',
+          wallets_updated: '我的钱包已更新 ({count})',
+          wallets_update_failed: '钱包更新失败: {msg}',
+          wallets_invalid: '未识别有效钱包地址，请每行输入一个地址。',
+          wallets_added: '新增 {count} 个钱包，总计 {total}。',
+          wallets_exists: '地址已存在，未新增。',
+          start_invalid_token: 'Token 地址格式无效，请输入 0x 开头的 42 位地址。',
+          start_busy: '启动中...',
+          start_scanning: '正在启动追踪任务并回扫历史...',
+          start_ok: '追踪已启动。',
+          start_abort_running: '启动请求超时，但任务已在后台运行。',
+          start_abort_failed: '启动超时，任务可能未成功启动。',
+          start_abort_check_failed: '启动超时，且状态回查失败。',
+          start_failed: '启动失败: {msg}',
+          stop_busy: '停止中...',
+          stop_wait: '正在停止追踪任务...',
+          stop_ok: '追踪已停止。',
+          stop_abort_done: '停止请求超时，但任务已停止。',
+          stop_abort_running: '停止超时，任务可能仍在运行。',
+          stop_abort_check_failed: '停止超时，且状态回查失败。',
+          stop_failed: '停止失败: {msg}',
+          sse_connected: '实时流已连接。',
+          sse_disconnected: '实时流断开，正在重连...',
+          init_status_failed: '获取初始状态失败，请检查后端服务。',
+        },
+        en: {
+          ph_token: 'Token CA (0x...)',
+          ph_wallet: 'My Wallet (0x...)',
+          ph_sell_tax: 'SellTax %',
+          ph_wallets: 'Add wallet addresses (one per line)',
+          ph_from_block: 'My FromBlock',
+          launch_label: 'Launch Start Time',
+          launch_fallback_aria: 'Launch start time fallback',
+          set_now: 'Set Now',
+          start_track: 'Start',
+          stop_track: 'Stop',
+          mode_token: 'Metric Token',
+          mode_virtual: 'Metric Virtual',
+          add_wallets: 'Add Wallets',
+          clear_wallets: 'Clear Wallets',
+          my_wallets: 'My Wallets',
+          th_scope: 'Scope',
+          th_balance: 'Balance',
+          th_spent_v: 'Spent V',
+          th_recv_t: 'Recv T',
+          th_cost: 'Cost',
+          th_eff_cost: 'Eff Cost',
+          th_be_mcap: 'BE MCAP',
+          th_last_active: 'Last Active',
+          th_address: 'Address',
+          th_cum_in: 'Cum In',
+          th_cum_out: 'Cum Out',
+          th_share: 'Share%',
+          th_label: 'Label',
+          th_category: 'Category',
+          hint_ready: 'Ready.',
+          rule_title: 'Rule State',
+          kpi_1m: '1m Taxed Vol',
+          kpi_2m: '2m Seq',
+          kpi_5m: '5m Taxed Vol',
+          kpi_cd: 'Cooldown',
+          kpi_rmv: 'My RMV',
+          kpi_cost: 'My Cost',
+          holders_title: 'Holders',
+          special_title: 'Special Protocol Flows',
+          launch_modal_title: 'Select Launch Start Time',
+          wheel_date: 'Date',
+          wheel_hour: 'Hour',
+          wheel_minute: 'Minute',
+          close: 'Close',
+          cancel: 'Cancel',
+          confirm: 'Confirm',
+          status_running: 'running',
+          status_stopped: 'stopped',
+          status_disconnected: 'disconnected',
+          status_line: 'Status: {status} | Block: {block}',
+          token_line: 'Token: {token}',
+          transfers_waiting: 'Transfers: waiting...',
+          transfers_none: 'Transfers: no transfers in window',
+          transfers_need_virtual: 'Transfers: set VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS',
+          transfers_logs: 'Transfers: logs {logs} | tx {tx}',
+          transfers_disconnected: 'Transfers: disconnected',
+          pair: 'Pair',
+          tax_now: 'Buy Tax Now: {tax}%',
+          cd_ready: 'Ready',
+          rule_wait: 'Waiting',
+          rule_wait_desc: 'Waiting for 3000 / 6000 two-minute breakout',
+          rule_first: 'First Threshold',
+          rule_first_desc: 'Waiting second-minute confirmation',
+          rule_second: 'Second Threshold',
+          rule_second_desc: 'Two-minute breakout confirmed',
+          rule_trigger: 'Signal Triggered',
+          rule_trigger_desc: 'Rule triggered, cooldown started',
+          wallet_state_running: 'backfill running',
+          wallet_state_queued: 'backfill queued',
+          wallet_state_done: 'backfill done',
+          wallet_state_error: 'backfill error',
+          wallet_state_idle: 'idle',
+          wallet_total: 'Total',
+          wallet_copy: 'Copy',
+          wallet_name_placeholder: 'Name',
+          wallet_copy_ok: 'Copied {addr}',
+          set_now_ok: 'Set to current time.',
+          runtime_updated: 'Runtime settings updated.',
+          wallets_updated: 'My Wallets updated ({count})',
+          wallets_update_failed: 'Wallet update failed: {msg}',
+          wallets_invalid: 'No valid wallet address found. Please input one address per line.',
+          wallets_added: 'Added {count} wallet(s). Total {total}.',
+          wallets_exists: 'All addresses already exist.',
+          start_invalid_token: 'Invalid token address. Please input 42-char 0x address.',
+          start_busy: 'Starting...',
+          start_scanning: 'Starting tracker and backfilling history...',
+          start_ok: 'Tracking started.',
+          start_abort_running: 'Start timed out, but task is running in background.',
+          start_abort_failed: 'Start timed out. Task may not have started.',
+          start_abort_check_failed: 'Start timed out and status check failed.',
+          start_failed: 'Start failed: {msg}',
+          stop_busy: 'Stopping...',
+          stop_wait: 'Stopping tracker...',
+          stop_ok: 'Tracking stopped.',
+          stop_abort_done: 'Stop timed out, but task has stopped.',
+          stop_abort_running: 'Stop timed out, task may still be running.',
+          stop_abort_check_failed: 'Stop timed out and status check failed.',
+          stop_failed: 'Stop failed: {msg}',
+          sse_connected: 'Realtime stream connected.',
+          sse_disconnected: 'Realtime stream disconnected, reconnecting...',
+          init_status_failed: 'Failed to load initial status. Check backend.',
+        },
+      };
+
+      function t(key, vars = {}) {
+        const langPack = I18N[currentLang] || I18N.zh;
+        const fallbackPack = I18N.zh;
+        let out = langPack[key] ?? fallbackPack[key] ?? key;
+        for (const [k, v] of Object.entries(vars || {})) {
+          out = out.replaceAll(`{${k}}`, String(v));
+        }
+        return out;
+      }
+
+      function applyI18nStatic() {
+        document.querySelectorAll('[data-i18n]').forEach((el) => {
+          const key = el.getAttribute('data-i18n');
+          if (key) el.textContent = t(key);
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+          const key = el.getAttribute('data-i18n-ph');
+          if (key) el.setAttribute('placeholder', t(key));
+        });
+        document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+          const key = el.getAttribute('data-i18n-aria');
+          if (key) el.setAttribute('aria-label', t(key));
+        });
+      }
+
+      function setLanguage(lang) {
+        currentLang = lang === 'en' ? 'en' : 'zh';
+        localStorage.setItem(LS_LANG_KEY, currentLang);
+        if (langZhBtn) langZhBtn.classList.toggle('active', currentLang === 'zh');
+        if (langEnBtn) langEnBtn.classList.toggle('active', currentLang === 'en');
+        document.documentElement.setAttribute('lang', currentLang === 'zh' ? 'zh-CN' : 'en');
+        applyI18nStatic();
+        renderMyWalletTags();
+        if (latest) {
+          renderSnapshot(latest);
+        } else {
+          tokenPill.textContent = t('token_line', { token: '-' });
+          statusPill.textContent = t('status_line', { status: t('status_stopped'), block: '-' });
+        }
+      }
 
       function toLocalDatetimeValue(date) {
         const y = date.getFullYear();
@@ -646,7 +969,8 @@
       function computeBuyTaxPctFromStart(startSec) {
         if (!Number.isFinite(startSec) || startSec <= 0) return 1;
         const nowSec = Math.floor(Date.now() / 1000);
-        const minutes = Math.floor((nowSec - startSec) / 60);
+        const deltaSec = Math.max(0, nowSec - startSec);
+        const minutes = Math.floor(deltaSec / 60);
         return clamp(99 - minutes, 1, 99);
       }
 
@@ -732,13 +1056,14 @@
         const dateObj = pickerState.dateOptions[pickerState.selectedDateIndex]?.date || startOfLocalDay(new Date());
         const h = pickerState.hourOptions[pickerState.selectedHourIndex] || 0;
         const m = pickerState.minuteOptions[pickerState.selectedMinuteIndex] || 0;
+        const s = Number.isFinite(launchStartSec) && launchStartSec > 0 ? (launchStartSec % 60) : 0;
         return new Date(
           dateObj.getFullYear(),
           dateObj.getMonth(),
           dateObj.getDate(),
           h,
           m,
-          0,
+          s,
           0
         );
       }
@@ -777,6 +1102,20 @@
         }, { passive: true });
       }
 
+      function stepWheelBy(key, delta) {
+        if (key === 'date') {
+          pickerState.selectedDateIndex = clamp(pickerState.selectedDateIndex + delta, 0, pickerState.dateOptions.length - 1);
+          scrollWheelToIndex(wheelDate, pickerState.selectedDateIndex, true);
+        } else if (key === 'hour') {
+          pickerState.selectedHourIndex = (pickerState.selectedHourIndex + delta + pickerState.hourOptions.length) % pickerState.hourOptions.length;
+          scrollWheelToIndex(wheelHour, pickerState.selectedHourIndex, true);
+        } else if (key === 'minute') {
+          pickerState.selectedMinuteIndex = (pickerState.selectedMinuteIndex + delta + pickerState.minuteOptions.length) % pickerState.minuteOptions.length;
+          scrollWheelToIndex(wheelMinute, pickerState.selectedMinuteIndex, true);
+        }
+        updatePickerPreview();
+      }
+
       function openLaunchModal() {
         pickerState.dateOptions = buildDateOptions();
         renderWheel(wheelDate, pickerState.dateOptions, (x) => x.label);
@@ -788,8 +1127,7 @@
         const foundDateIdx = pickerState.dateOptions.findIndex((x) => sameLocalDay(x.date, base));
         pickerState.selectedDateIndex = foundDateIdx >= 0 ? foundDateIdx : 0;
         pickerState.selectedHourIndex = base.getHours();
-        const nearestMinute = clamp(Math.round(base.getMinutes() / 5) * 5, 0, 55);
-        pickerState.selectedMinuteIndex = Math.round(nearestMinute / 5);
+        pickerState.selectedMinuteIndex = base.getMinutes();
 
         scrollWheelToIndex(wheelDate, pickerState.selectedDateIndex, false);
         scrollWheelToIndex(wheelHour, pickerState.selectedHourIndex, false);
@@ -839,7 +1177,7 @@
         myWalletTags.innerHTML = myWallets.map((addr) => `
           <span class="wallet-tag">
             <span class="mono">${shortAddr(addr)}</span>
-            <input class="wallet-label-input" data-label-wallet="${addr}" type="text" maxlength="24" placeholder="Name" value="${getWalletLabel(addr).replace(/"/g, '&quot;')}" />
+            <input class="wallet-label-input" data-label-wallet="${addr}" type="text" maxlength="24" placeholder="${t('wallet_name_placeholder')}" value="${getWalletLabel(addr).replace(/"/g, '&quot;')}" />
             <button data-del-wallet="${addr}" type="button">x</button>
           </span>
         `).join('');
@@ -860,9 +1198,9 @@
             myWallets: myWallets,
             my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
           });
-          setHint(`My Wallets updated (${myWallets.length})`, 'ok');
+          setHint(t('wallets_updated', { count: myWallets.length }), 'ok');
         } catch (e) {
-          setHint(`Wallet update failed: ${e.message || String(e)}`, 'err');
+          setHint(t('wallets_update_failed', { msg: e.message || String(e) }), 'err');
         }
       }
 
@@ -976,20 +1314,20 @@
         const v1 = Number(pair.v1 || 0);
 
         ruleState.className = 'rule-state';
-        let text = '等待';
-        let desc = '等待连续两分钟突破 3000 / 6000';
+        let text = t('rule_wait');
+        let desc = t('rule_wait_desc');
 
         if (sig.passed_now) {
-          text = '入场触发';
-          desc = '规则已触发，进入冷却期';
+          text = t('rule_trigger');
+          desc = t('rule_trigger_desc');
           ruleState.classList.add('s-trigger');
         } else if (v0 > 3000 && v1 > 6000) {
-          text = '第二阈值确认';
-          desc = '连续两分钟突破成立';
+          text = t('rule_second');
+          desc = t('rule_second_desc');
           ruleState.classList.add('s-second');
         } else if (v0 > 3000) {
-          text = '第一阈值突破';
-          desc = '等待第二分钟确认';
+          text = t('rule_first');
+          desc = t('rule_first_desc');
           ruleState.classList.add('s-first');
         } else {
           ruleState.classList.add('s-wait');
@@ -998,24 +1336,27 @@
         if (Date.now() < flashUntil) ruleState.classList.add('blink');
         ruleState.textContent = text;
         ruleDesc.textContent = desc;
-        pairNow.textContent = `Pair: ${fmt(v0)} -> ${fmt(v1)}`;
+        pairNow.textContent = `${t('pair')}: ${fmt(v0)} -> ${fmt(v1)}`;
       }
 
       function renderSnapshot(snapshot) {
         if (!snapshot) return;
         latest = snapshot;
 
-        tokenPill.textContent = `Token: ${shortAddr(snapshot.token)}`;
-        statusPill.textContent = `Status: ${snapshot.running ? 'running' : 'stopped'} | Block: ${snapshot.last_processed_block || '-'}`;
+        tokenPill.textContent = t('token_line', { token: shortAddr(snapshot.token) });
+        statusPill.textContent = t('status_line', {
+          status: snapshot.running ? t('status_running') : t('status_stopped'),
+          block: snapshot.last_processed_block || '-',
+        });
         const ingest = snapshot.ingest || {};
         if (!ingest.counterparty_configured) {
-          transferPill.textContent = 'Transfers: set VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS';
+          transferPill.textContent = t('transfers_need_virtual');
         } else if (ingest.no_transfers_in_window) {
-          transferPill.textContent = 'Transfers: no transfers in window';
+          transferPill.textContent = t('transfers_none');
         } else if (Number(ingest.log_count || 0) > 0) {
-          transferPill.textContent = `Transfers: logs ${Number(ingest.log_count || 0)} | tx ${Number(ingest.tx_count || 0)}`;
+          transferPill.textContent = t('transfers_logs', { logs: Number(ingest.log_count || 0), tx: Number(ingest.tx_count || 0) });
         } else {
-          transferPill.textContent = 'Transfers: waiting...';
+          transferPill.textContent = t('transfers_waiting');
         }
         setModeBtn(snapshot.metric_mode);
 
@@ -1025,9 +1366,9 @@
         kpi5.textContent = fmt(w.near_5m);
         kpiCd.textContent = snapshot.signal_state?.cooling_down
           ? new Date(Number(snapshot.signal_state.cooldown_until || 0) * 1000).toLocaleTimeString()
-          : 'Ready';
+          : t('cd_ready');
 
-        taxNow.textContent = `当前买入税率: ${Number(snapshot.tax?.buy_tax_pct || 1).toFixed(0)}%`;
+        taxNow.textContent = t('tax_now', { tax: Number(snapshot.tax?.buy_tax_pct || 1).toFixed(0) });
         kpiRmv.textContent = fmt(snapshot.my_wallet?.breakeven_mcap || 0);
         kpiCost.textContent = fmt(snapshot.my_wallet?.cost_per_token || 0);
 
@@ -1043,24 +1384,24 @@
         const st = data?.status || {};
         const state = String(st.state || 'idle');
         const stateText = state === 'running'
-          ? 'backfill running'
+          ? t('wallet_state_running')
           : state === 'queued'
-            ? 'backfill queued'
+            ? t('wallet_state_queued')
             : state === 'done'
-              ? 'backfill done'
+              ? t('wallet_state_done')
               : state === 'error'
-                ? 'backfill error'
-                : 'idle';
+                ? t('wallet_state_error')
+                : t('wallet_state_idle');
         myWalletStatusChip.className = `status-chip ${state}`;
         myWalletStatusChip.textContent = stateText;
         myWalletStatusChip.title = st.last_error
           ? `Error: ${st.last_error}`
-          : (st.last_at ? `Last: ${new Date(st.last_at * 1000).toLocaleTimeString()} | Reason: ${st.last_reason || '-'}` : 'No backfill yet');
+          : (st.last_at ? `Last: ${new Date(st.last_at * 1000).toLocaleTimeString()} | Reason: ${st.last_reason || '-'}` : t('wallet_state_idle'));
 
         const t = data?.total || {};
         myWalletTotalBody.innerHTML = `
           <tr>
-            <td>Total (${(data?.addresses || []).length})</td>
+            <td>${t('wallet_total')} (${(data?.addresses || []).length})</td>
             <td>${fmt(t.balance || 0)}</td>
             <td>${fmt(t.spent_virtual_sum || 0)}</td>
             <td>${fmt(t.received_token_sum || 0)}</td>
@@ -1076,7 +1417,7 @@
             <td class="mono">
               ${getWalletLabel(r.address) ? `<span class="wallet-name">${getWalletLabel(r.address)}</span>` : ''}
               ${shortAddr(r.address)}
-              <button class="copy-btn" data-copy="${r.address}" type="button">Copy</button>
+              <button class="copy-btn" data-copy="${r.address}" type="button">${t('wallet_copy')}</button>
             </td>
             <td>${fmt(r.balance)}</td>
             <td>${fmt(r.spent_virtual_sum)}</td>
@@ -1119,12 +1460,12 @@
         try {
           const token = tokenInput.value.trim();
           if (!/^0x[a-fA-F0-9]{40}$/.test(token)) {
-            setHint('Token 地址格式无效，请输入 0x 开头的 42 位地址。', 'err');
+            setHint(t('start_invalid_token'), 'err');
             return;
           }
           startBusy = true;
-          setButtonBusy(startBtn, true, '启动中...', '开始追踪');
-          setHint('正在启动追踪任务并进行回扫...', 'warn');
+          setButtonBusy(startBtn, true, t('start_busy'), t('start_track'));
+          setHint(t('start_scanning'), 'warn');
 
           const payload = {
             token_address: token,
@@ -1138,26 +1479,26 @@
           renderSnapshot(d.snapshot);
           localStorage.setItem(LS_TOKEN_KEY, token);
           localStorage.setItem(LS_WALLET_KEY, walletInput.value.trim());
-          setHint('追踪已启动。', 'ok');
+          setHint(t('start_ok'), 'ok');
         } catch (e) {
           const msg = String(e?.message || e || '');
           if (msg.toLowerCase().includes('abort')) {
             try {
               const st = await refreshStatusOnce();
               if (st?.status?.running) {
-                setHint('启动请求超时，但任务已在后台运行。', 'warn');
+                setHint(t('start_abort_running'), 'warn');
               } else {
-                setHint('启动超时，任务可能未成功启动。', 'err');
+                setHint(t('start_abort_failed'), 'err');
               }
             } catch {
-              setHint('启动超时，且状态回查失败。', 'err');
+              setHint(t('start_abort_check_failed'), 'err');
             }
           } else {
-            setHint(`启动失败: ${msg}`, 'err');
+            setHint(t('start_failed', { msg }), 'err');
           }
         } finally {
           startBusy = false;
-          setButtonBusy(startBtn, false, '启动中...', '开始追踪');
+          setButtonBusy(startBtn, false, t('start_busy'), t('start_track'));
         }
       });
 
@@ -1165,30 +1506,30 @@
         if (stopBusy) return;
         try {
           stopBusy = true;
-          setButtonBusy(stopBtn, true, '停止中...', '停止');
-          setHint('正在停止追踪任务...', 'warn');
+          setButtonBusy(stopBtn, true, t('stop_busy'), t('stop_track'));
+          setHint(t('stop_wait'), 'warn');
           await post('/api/track/stop', {}, 15000);
           const st = await fetch('/api/status').then((r) => r.json());
           if (st?.snapshot) renderSnapshot(st.snapshot);
-          statusPill.textContent = 'Status: stopped | Block: -';
+          statusPill.textContent = t('status_line', { status: t('status_stopped'), block: '-' });
           transferPill.textContent = 'Transfers: -';
-          setHint('追踪已停止。', 'ok');
+          setHint(t('stop_ok'), 'ok');
         } catch (e) {
           const msg = String(e?.message || e || '');
           if (msg.toLowerCase().includes('abort')) {
             try {
               const st = await refreshStatusOnce();
-              if (!st?.status?.running) setHint('停止请求超时，但任务已停止。', 'warn');
-              else setHint('停止超时，任务可能仍在运行。', 'err');
+              if (!st?.status?.running) setHint(t('stop_abort_done'), 'warn');
+              else setHint(t('stop_abort_running'), 'err');
             } catch {
-              setHint('停止超时，且状态回查失败。', 'err');
+              setHint(t('stop_abort_check_failed'), 'err');
             }
           } else {
-            setHint(`停止失败: ${msg}`, 'err');
+            setHint(t('stop_failed', { msg }), 'err');
           }
         } finally {
           stopBusy = false;
-          setButtonBusy(stopBtn, false, '停止中...', '停止');
+          setButtonBusy(stopBtn, false, t('stop_busy'), t('stop_track'));
         }
       });
 
@@ -1209,7 +1550,7 @@
               myWallets: myWallets,
               my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
             });
-            setHint('运行参数已更新。', 'ok');
+            setHint(t('runtime_updated'), 'ok');
           } catch {}
         });
       });
@@ -1217,7 +1558,7 @@
       myWalletApplyBtn.addEventListener('click', () => {
         const incoming = normalizeWalletList(myWalletsInput.value);
         if (!incoming.length) {
-          setHint('No valid wallet address found. Please input one address per line.', 'err');
+          setHint(t('wallets_invalid'), 'err');
           return;
         }
         const before = new Set(myWallets);
@@ -1227,7 +1568,10 @@
         myWallets = next;
         myWalletsInput.value = '';
         applyMyWalletsRuntime(true);
-        setHint(added > 0 ? `Added ${added} wallet(s). Total ${myWallets.length}.` : 'All addresses already exist.', added > 0 ? 'ok' : 'warn');
+        setHint(
+          added > 0 ? t('wallets_added', { count: added, total: myWallets.length }) : t('wallets_exists'),
+          added > 0 ? 'ok' : 'warn'
+        );
       });
 
       myWalletClearBtn.addEventListener('click', () => {
@@ -1262,7 +1606,7 @@
         const addr = btn.getAttribute('data-copy');
         try {
           await navigator.clipboard.writeText(addr);
-          setHint(`Copied ${shortAddr(addr)}`, 'ok');
+          setHint(t('wallet_copy_ok', { addr: shortAddr(addr) }), 'ok');
         } catch {}
       });
 
@@ -1283,7 +1627,7 @@
         const nowSec = Math.floor(Date.now() / 1000);
         setLaunchInputBySeconds(nowSec);
         applyLaunchStartChange(true);
-        setHint('已设置为当前时间。', 'ok');
+        setHint(t('set_now_ok'), 'ok');
       });
 
       launchBackdrop.addEventListener('click', () => closeLaunchModal());
@@ -1304,6 +1648,15 @@
       bindWheel(wheelDate, 'date', 7);
       bindWheel(wheelHour, 'hour', 24);
       bindWheel(wheelMinute, 'minute', pickerState.minuteOptions.length);
+      document.querySelectorAll('[data-wheel-step]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const raw = String(btn.getAttribute('data-wheel-step') || '');
+          const [key, stepText] = raw.split(':');
+          const delta = Number(stepText || 0);
+          if (!key || !Number.isFinite(delta) || delta === 0) return;
+          stepWheelBy(key, delta);
+        });
+      });
 
       function connectEvents() {
         if (eventSource) {
@@ -1312,7 +1665,7 @@
         }
         eventSource = new EventSource('/api/events');
         eventSource.addEventListener('connected', () => {
-          setHint('实时流已连接。', 'ok');
+          setHint(t('sse_connected'), 'ok');
         });
         eventSource.addEventListener('update', (ev) => {
           const p = JSON.parse(ev.data);
@@ -1324,15 +1677,20 @@
           renderSnapshot(p.snapshot);
         });
         eventSource.onerror = () => {
-          statusPill.textContent = 'Status: disconnected | Block: -';
-          transferPill.textContent = 'Transfers: disconnected';
-          setHint('实时流断开，正在重连...', 'warn');
+          statusPill.textContent = t('status_line', { status: t('status_disconnected'), block: '-' });
+          transferPill.textContent = t('transfers_disconnected');
+          setHint(t('sse_disconnected'), 'warn');
           try { eventSource.close(); } catch {}
           eventSource = null;
           clearTimeout(sseRetryTimer);
           sseRetryTimer = setTimeout(connectEvents, 2500);
         };
       }
+
+      if (currentLang !== 'en' && currentLang !== 'zh') currentLang = 'zh';
+      if (langZhBtn) langZhBtn.addEventListener('click', () => setLanguage('zh'));
+      if (langEnBtn) langEnBtn.addEventListener('click', () => setLanguage('en'));
+      setLanguage(currentLang);
 
       initLaunchStartInput();
       applyLaunchStartChange(true);
@@ -1371,7 +1729,7 @@
       fetch('/api/status').then((r) => r.json()).then((d) => {
         renderSnapshot(d.snapshot);
       }).catch(() => {
-        setHint('获取初始状态失败，请检查后端服务。', 'err');
+        setHint(t('init_status_failed'), 'err');
       });
 
       window.addEventListener('beforeunload', () => {

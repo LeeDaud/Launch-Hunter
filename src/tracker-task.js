@@ -32,6 +32,7 @@ export class TokenTrackerTask {
     this.unwatchHead = null;
     this.lastKnownHead = 0;
     this.lastEmitAt = 0;
+    this.lastChainTimeSec = 0;
     this.currentMetricMode = config.metricMode === 'virtual_spent' ? 'virtual_spent' : 'token_received';
 
     this.blockTsCache = new Map();
@@ -334,6 +335,8 @@ export class TokenTrackerTask {
 
       const prev = Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0);
       this.db.setMeta(this.tokenAddress, { last_processed_block: isReplay ? Math.max(prev, end) : end, running: 1 });
+      const endTs = this.blockTsCache.get(end) ?? this.db.getBlockTimestamp(end) ?? await this.getBlockTimestamp(end);
+      this.lastChainTimeSec = Math.max(this.lastChainTimeSec, Number(endTs || 0));
       this.lastIngest = {
         start,
         end,
@@ -881,7 +884,7 @@ export class TokenTrackerTask {
         }
       }
 
-      const taxPct = calcBuyTaxPct(m + 59, Number(this.runtimeConfig.launchStartTime || 0));
+      const taxPct = calcBuyTaxPct(m, Number(this.runtimeConfig.launchStartTime || 0));
       const emv = lastMcap > 0 ? lastMcap / (1 - taxPct / 100) : 0;
       emvSeries.push({ minute_ts: m, value: emv, tax_pct: taxPct, mcap: lastMcap });
       rmvSeries.push({ minute_ts: m, value: rmv });
@@ -944,6 +947,7 @@ export class TokenTrackerTask {
     const curves = this.buildCurves(tokenMeta, myWalletSummary);
     const specialStats = this.computeSpecialStats(tokenDecimals, virtualDecimals);
 
+    const taxNowSec = this.lastChainTimeSec > 0 ? this.lastChainTimeSec : nowSec();
     return {
       token: this.tokenAddress,
       running: this.running,
@@ -964,8 +968,9 @@ export class TokenTrackerTask {
       },
       tax: {
         launch_start_time: Number(this.runtimeConfig.launchStartTime || 0),
-        buy_tax_pct: calcBuyTaxPct(nowSec(), Number(this.runtimeConfig.launchStartTime || 0)),
+        buy_tax_pct: calcBuyTaxPct(taxNowSec, Number(this.runtimeConfig.launchStartTime || 0)),
         sell_tax_pct: Number(this.runtimeConfig.sellTaxPct || 1),
+        reference_time: taxNowSec,
       },
       minute_series: minuteSeries,
       curves,

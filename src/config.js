@@ -86,6 +86,7 @@ export function clamp(v, min, max) {
 
 export function calcBuyTaxPct(nowSec, launchStartTime) {
   if (!launchStartTime || launchStartTime <= 0) return 1;
-  const minutes = Math.max(0, Math.floor((nowSec - launchStartTime) / 60));
+  const deltaSec = Math.max(0, Number(nowSec || 0) - Number(launchStartTime || 0));
+  const minutes = Math.floor(deltaSec / 60);
   return clamp(99 - minutes, 1, 99);
 }
