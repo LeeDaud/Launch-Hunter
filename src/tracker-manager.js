@@ -20,6 +20,8 @@ export class TrackerManager {
     this.runtimeConfig = {
       launchStartTime: Number(config.launchStartTime || 0),
       walletAddress: String(config.walletAddress || '').toLowerCase(),
+      myWallets: this.db.getMyWallets().map((x) => String(x.addr || '').toLowerCase()).filter((x) => isAddress(x)),
+      myWalletFromBlock: Number(config.myWalletFromBlock || 0),
       sellTaxPct: Number(config.sellTaxPct || 1),
       curveWindowMinutes: Number(config.curveWindowMinutes || 30),
     };
@@ -141,7 +143,10 @@ export class TrackerManager {
     this.broadcast({ type: 'metric_mode_changed', ts: Date.now(), snapshot: this.getSnapshot() });
   }
 
-  updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, curveWindowMinutes }) {
+  updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, curveWindowMinutes, myWallets, myWalletFromBlock }) {
+    let walletsChanged = false;
+    let fromBlockChanged = false;
+
     if (launchStartTime != null && Number.isFinite(Number(launchStartTime))) {
       this.runtimeConfig.launchStartTime = Number(launchStartTime);
     }
@@ -152,8 +157,32 @@ export class TrackerManager {
     if (sellTaxPct != null && Number.isFinite(Number(sellTaxPct))) {
       this.runtimeConfig.sellTaxPct = Number(sellTaxPct);
     }
+    if (Array.isArray(myWallets)) {
+      const normalized = Array.from(new Set(
+        myWallets
+          .map((x) => String(x || '').trim().toLowerCase())
+          .filter((x) => isAddress(x))
+      ));
+      const prev = JSON.stringify(this.runtimeConfig.myWallets || []);
+      const next = JSON.stringify(normalized);
+      walletsChanged = prev !== next;
+      this.runtimeConfig.myWallets = normalized;
+      this.db.saveMyWallets(normalized.map((addr) => ({ addr, label: '' })));
+    }
+    if (myWalletFromBlock != null && Number.isFinite(Number(myWalletFromBlock))) {
+      const val = Math.max(0, Number(myWalletFromBlock));
+      fromBlockChanged = val !== Number(this.runtimeConfig.myWalletFromBlock || 0);
+      this.runtimeConfig.myWalletFromBlock = val;
+    }
     if (curveWindowMinutes != null && Number.isFinite(Number(curveWindowMinutes))) {
       this.runtimeConfig.curveWindowMinutes = Math.max(10, Math.min(120, Number(curveWindowMinutes)));
+    }
+
+    if (this.activeTask && (walletsChanged || fromBlockChanged)) {
+      this.activeTask.onRuntimeUpdated({
+        myWalletsChanged: walletsChanged,
+        myWalletFromBlockChanged: fromBlockChanged,
+      });
     }
 
     this.broadcast({

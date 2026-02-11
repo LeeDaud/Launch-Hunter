@@ -222,6 +222,82 @@
       .hint.ok { color: #bdeecf; background: rgba(78, 215, 141, .14); }
       .hint.warn { color: #ffd89d; background: rgba(240, 193, 86, .14); }
       .hint.err { color: #ffb5c2; background: rgba(255, 94, 120, .14); }
+      .wallet-cfg {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1.1fr auto;
+        gap: 8px;
+      }
+      .wallet-textarea {
+        min-height: 86px;
+        resize: vertical;
+        width: 100%;
+      }
+      .wallet-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .wallet-tags {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .wallet-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(101,194,255,.14);
+        color: #d5ecff;
+        font-size: 12px;
+      }
+      .wallet-tag button {
+        border: none;
+        background: transparent;
+        color: #b6d6ef;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .wallet-label-input {
+        width: 120px;
+        border: none;
+        border-radius: 6px;
+        padding: 2px 6px;
+        background: rgba(15, 29, 45, .9);
+        color: #d8ebfb;
+        outline: 1px solid rgba(123, 164, 205, .22);
+        font-size: 12px;
+      }
+      .wallet-name {
+        color: #d8ecff;
+        margin-right: 6px;
+      }
+      .mywallet-card { margin-top: 10px; }
+      .copy-btn {
+        border: none;
+        border-radius: 6px;
+        padding: 2px 6px;
+        background: rgba(100,136,169,.2);
+        color: #c8e0f2;
+        cursor: pointer;
+      }
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: rgba(120,151,182,.16);
+        color: #bcd5ea;
+      }
+      .status-chip.queued { background: rgba(240,193,86,.16); color: #ffd99f; }
+      .status-chip.running { background: rgba(101,194,255,.16); color: #b8e4ff; }
+      .status-chip.done { background: rgba(78,215,141,.16); color: #bcf1d2; }
+      .status-chip.error { background: rgba(255,94,120,.16); color: #ffc3cf; }
 
       .hero {
         margin-top: 10px;
@@ -288,6 +364,55 @@
           <button id="stopBtn" class="btn">停止</button>
           <button id="modeToken" class="btn active" data-mode="token_received">口径 Token</button>
           <button id="modeVirtual" class="btn" data-mode="virtual_spent">口径 Virtual</button>
+        </div>
+        <div class="wallet-cfg">
+          <textarea id="myWalletsInput" class="input mono wallet-textarea" placeholder="Add wallet addresses (one per line)"></textarea>
+          <div class="wallet-actions">
+            <input id="myWalletFromBlockInput" class="input mono" style="width:170px" placeholder="My FromBlock" />
+            <button id="myWalletApplyBtn" class="btn btn-light" type="button">Add Wallets</button>
+            <button id="myWalletClearBtn" class="btn btn-light" type="button">Clear Wallets</button>
+          </div>
+        </div>
+        <div id="myWalletTags" class="wallet-tags"></div>
+        <div class="mywallet-card">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">
+            My Wallets
+            <span id="myWalletStatusChip" class="status-chip">idle</span>
+          </div>
+          <div class="table-wrap" style="max-height:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Scope</th>
+                  <th>Balance</th>
+                  <th>Spent V</th>
+                  <th>Recv T</th>
+                  <th>Cost</th>
+                  <th>Eff Cost</th>
+                  <th>BE MCAP</th>
+                  <th>Last Active</th>
+                </tr>
+              </thead>
+              <tbody id="myWalletTotalBody"></tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Balance</th>
+                  <th>Spent V</th>
+                  <th>Recv T</th>
+                  <th>Cost</th>
+                  <th>Eff Cost</th>
+                  <th>BE MCAP</th>
+                  <th>Last Active</th>
+                </tr>
+              </thead>
+              <tbody id="myWalletBody"></tbody>
+            </table>
+          </div>
         </div>
         <div class="status">
           <div id="tokenPill" class="pill mono">Token: -</div>
@@ -370,6 +495,7 @@
           </div>
         </div>
       </div>
+
     </div>
 
     <div id="launchModal" class="launch-modal hidden" role="dialog" aria-modal="true" aria-labelledby="launchSheetTitle">
@@ -413,6 +539,14 @@
       const startBtn = $('startBtn');
       const stopBtn = $('stopBtn');
       const actionHint = $('actionHint');
+      const myWalletsInput = $('myWalletsInput');
+      const myWalletFromBlockInput = $('myWalletFromBlockInput');
+      const myWalletApplyBtn = $('myWalletApplyBtn');
+      const myWalletClearBtn = $('myWalletClearBtn');
+      const myWalletTags = $('myWalletTags');
+      const myWalletTotalBody = $('myWalletTotalBody');
+      const myWalletBody = $('myWalletBody');
+      const myWalletStatusChip = $('myWalletStatusChip');
       const launchModal = $('launchModal');
       const launchBackdrop = $('launchBackdrop');
       const launchCloseBtn = $('launchCloseBtn');
@@ -455,10 +589,15 @@
       const wheelTimers = {};
       const LS_TOKEN_KEY = 'lastTrackedToken';
       const LS_WALLET_KEY = 'lastWalletAddress';
+      const LS_MY_WALLETS_KEY = 'myWalletsList';
+      const LS_MY_WALLETS_LABELS_KEY = 'myWalletsLabels';
+      const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
       let eventSource = null;
       let sseRetryTimer = null;
       let startBusy = false;
       let stopBusy = false;
+      let myWallets = [];
+      let walletLabels = {};
 
       function toLocalDatetimeValue(date) {
         const y = date.getFullYear();
@@ -647,6 +786,57 @@
         btn.style.cursor = busy ? 'not-allowed' : 'pointer';
       }
 
+      function normalizeWalletList(rawText) {
+        const lines = String(rawText || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+        const map = new Map();
+        for (const line of lines) {
+          if (/^0x[a-fA-F0-9]{40}$/.test(line)) map.set(line.toLowerCase(), line);
+        }
+        return Array.from(map.keys());
+      }
+
+      function syncWalletLabelMap() {
+        const next = {};
+        for (const addr of myWallets) next[addr] = String(walletLabels?.[addr] || '');
+        walletLabels = next;
+      }
+
+      function getWalletLabel(addr) {
+        const v = String(walletLabels?.[addr] || '').trim();
+        return v || '';
+      }
+
+      function renderMyWalletTags() {
+        myWalletTags.innerHTML = myWallets.map((addr) => `
+          <span class="wallet-tag">
+            <span class="mono">${shortAddr(addr)}</span>
+            <input class="wallet-label-input" data-label-wallet="${addr}" type="text" maxlength="24" placeholder="Name" value="${getWalletLabel(addr).replace(/"/g, '&quot;')}" />
+            <button data-del-wallet="${addr}" type="button">x</button>
+          </span>
+        `).join('');
+      }
+
+      async function applyMyWalletsRuntime(push = true) {
+        syncWalletLabelMap();
+        renderMyWalletTags();
+        localStorage.setItem(LS_MY_WALLETS_KEY, JSON.stringify(myWallets));
+        localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
+        localStorage.setItem(LS_MY_FROM_BLOCK_KEY, String(Number(myWalletFromBlockInput.value || 0)));
+        if (!push) return;
+        try {
+          await post('/api/settings/runtime', {
+            launch_start_time: parseLaunchStartSeconds(),
+            wallet_address: walletInput.value.trim(),
+            sell_tax_pct: Number(sellTaxInput.value || 1),
+            myWallets: myWallets,
+            my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
+          });
+          setHint(`My Wallets updated (${myWallets.length})`, 'ok');
+        } catch (e) {
+          setHint(`Wallet update failed: ${e.message || String(e)}`, 'err');
+        }
+      }
+
       function shortAddr(v) {
         if (!v) return '-';
         return `${v.slice(0, 6)}...${v.slice(-4)}`;
@@ -807,6 +997,57 @@
         renderCurve(snapshot.curves || {});
         renderHolders(snapshot);
         renderSpecial(snapshot);
+        renderMyWalletStats(snapshot.my_wallets || {});
+      }
+
+      function renderMyWalletStats(data) {
+        const st = data?.status || {};
+        const state = String(st.state || 'idle');
+        const stateText = state === 'running'
+          ? 'backfill running'
+          : state === 'queued'
+            ? 'backfill queued'
+            : state === 'done'
+              ? 'backfill done'
+              : state === 'error'
+                ? 'backfill error'
+                : 'idle';
+        myWalletStatusChip.className = `status-chip ${state}`;
+        myWalletStatusChip.textContent = stateText;
+        myWalletStatusChip.title = st.last_error
+          ? `Error: ${st.last_error}`
+          : (st.last_at ? `Last: ${new Date(st.last_at * 1000).toLocaleTimeString()} | Reason: ${st.last_reason || '-'}` : 'No backfill yet');
+
+        const t = data?.total || {};
+        myWalletTotalBody.innerHTML = `
+          <tr>
+            <td>Total (${(data?.addresses || []).length})</td>
+            <td>${fmt(t.balance || 0)}</td>
+            <td>${fmt(t.spent_virtual_sum || 0)}</td>
+            <td>${fmt(t.received_token_sum || 0)}</td>
+            <td>${fmt(t.cost_per_token || 0)}</td>
+            <td>${fmt(t.effective_cost_per_token || 0)}</td>
+            <td>${fmt(t.breakeven_mcap || 0)}</td>
+            <td>-</td>
+          </tr>
+        `;
+        const rows = data?.rows || [];
+        myWalletBody.innerHTML = rows.map((r) => `
+          <tr>
+            <td class="mono">
+              ${getWalletLabel(r.address) ? `<span class="wallet-name">${getWalletLabel(r.address)}</span>` : ''}
+              ${shortAddr(r.address)}
+              <button class="copy-btn" data-copy="${r.address}" type="button">Copy</button>
+            </td>
+            <td>${fmt(r.balance)}</td>
+            <td>${fmt(r.spent_virtual_sum)}</td>
+            <td>${fmt(r.received_token_sum)}</td>
+            <td>${fmt(r.cost_per_token)}</td>
+            <td>${fmt(r.effective_cost_per_token)}</td>
+            <td>${fmt(r.breakeven_mcap)}</td>
+            <td>${r.last_active_time ? new Date(r.last_active_time * 1000).toLocaleTimeString() : '-'}</td>
+          </tr>
+        `).join('');
       }
 
       async function post(url, body, timeoutMs = 15000) {
@@ -851,6 +1092,8 @@
             launch_start_time: parseLaunchStartSeconds(),
             wallet_address: walletInput.value.trim(),
             sell_tax_pct: Number(sellTaxInput.value || 1),
+            myWallets: myWallets,
+            my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
           };
           const d = await post('/api/track/start', payload, 30000);
           renderSnapshot(d.snapshot);
@@ -923,10 +1166,64 @@
               launch_start_time: parseLaunchStartSeconds(),
               wallet_address: walletInput.value.trim(),
               sell_tax_pct: Number(sellTaxInput.value || 1),
+              myWallets: myWallets,
+              my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
             });
             setHint('运行参数已更新。', 'ok');
           } catch {}
         });
+      });
+
+      myWalletApplyBtn.addEventListener('click', () => {
+        const incoming = normalizeWalletList(myWalletsInput.value);
+        if (!incoming.length) {
+          setHint('No valid wallet address found. Please input one address per line.', 'err');
+          return;
+        }
+        const before = new Set(myWallets);
+        for (const addr of incoming) before.add(addr);
+        const next = Array.from(before);
+        const added = next.length - myWallets.length;
+        myWallets = next;
+        myWalletsInput.value = '';
+        applyMyWalletsRuntime(true);
+        setHint(added > 0 ? `Added ${added} wallet(s). Total ${myWallets.length}.` : 'All addresses already exist.', added > 0 ? 'ok' : 'warn');
+      });
+
+      myWalletClearBtn.addEventListener('click', () => {
+        myWallets = [];
+        walletLabels = {};
+        myWalletsInput.value = '';
+        renderMyWalletTags();
+        applyMyWalletsRuntime(true);
+      });
+
+      myWalletTags.addEventListener('click', (ev) => {
+        const btn = ev.target?.closest?.('[data-del-wallet]');
+        if (!btn) return;
+        const addr = btn.getAttribute('data-del-wallet');
+        myWallets = myWallets.filter((x) => x !== addr);
+        delete walletLabels[addr];
+        renderMyWalletTags();
+        applyMyWalletsRuntime(true);
+      });
+
+      myWalletTags.addEventListener('input', (ev) => {
+        const input = ev.target?.closest?.('[data-label-wallet]');
+        if (!input) return;
+        const addr = input.getAttribute('data-label-wallet');
+        walletLabels[addr] = String(input.value || '').trim();
+        localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
+      });
+
+      myWalletBody.addEventListener('click', async (ev) => {
+        const btn = ev.target?.closest?.('[data-copy]');
+        if (!btn) return;
+        const addr = btn.getAttribute('data-copy');
+        try {
+          await navigator.clipboard.writeText(addr);
+          setHint(`Copied ${shortAddr(addr)}`, 'ok');
+        } catch {}
       });
 
       launchInput.addEventListener('change', () => {
@@ -995,8 +1292,34 @@
       applyLaunchStartChange(true);
       const savedToken = localStorage.getItem(LS_TOKEN_KEY);
       const savedWallet = localStorage.getItem(LS_WALLET_KEY);
+      const savedMyWallets = localStorage.getItem(LS_MY_WALLETS_KEY);
+      const savedWalletLabels = localStorage.getItem(LS_MY_WALLETS_LABELS_KEY);
+      const savedFromBlock = localStorage.getItem(LS_MY_FROM_BLOCK_KEY);
       if (savedToken) tokenInput.value = savedToken;
       if (savedWallet) walletInput.value = savedWallet;
+      if (savedFromBlock) myWalletFromBlockInput.value = savedFromBlock;
+      if (savedMyWallets) {
+        try {
+          myWallets = JSON.parse(savedMyWallets) || [];
+        } catch {
+          myWallets = [];
+        }
+      } else {
+        myWallets = [];
+      }
+      if (savedWalletLabels) {
+        try {
+          walletLabels = JSON.parse(savedWalletLabels) || {};
+        } catch {
+          walletLabels = {};
+        }
+      } else {
+        walletLabels = {};
+      }
+      syncWalletLabelMap();
+      myWalletsInput.value = '';
+      renderMyWalletTags();
+      applyMyWalletsRuntime(false);
       connectEvents();
 
       fetch('/api/status').then((r) => r.json()).then((d) => {

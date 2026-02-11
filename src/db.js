@@ -120,6 +120,29 @@ export class TrackerDB {
         timestamp INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS my_wallets (
+        addr TEXT PRIMARY KEY,
+        label TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS my_wallet_stats (
+        token_address TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        spent_virtual_sum TEXT NOT NULL DEFAULT '0',
+        received_token_sum TEXT NOT NULL DEFAULT '0',
+        sold_token_sum TEXT NOT NULL DEFAULT '0',
+        received_virtual_sum TEXT NOT NULL DEFAULT '0',
+        transfer_in_sum TEXT NOT NULL DEFAULT '0',
+        transfer_out_sum TEXT NOT NULL DEFAULT '0',
+        total_in_sum TEXT NOT NULL DEFAULT '0',
+        total_out_sum TEXT NOT NULL DEFAULT '0',
+        tx_count INTEGER NOT NULL DEFAULT 0,
+        last_active_time INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (token_address, wallet_address)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_transfers_token_block ON transfers(token_address, block_number);
       CREATE INDEX IF NOT EXISTS idx_transfers_token_time ON transfers(token_address, timestamp);
       CREATE INDEX IF NOT EXISTS idx_transfers_token_tx ON transfers(token_address, tx_hash);
@@ -127,6 +150,7 @@ export class TrackerDB {
       CREATE INDEX IF NOT EXISTS idx_fact_addr_token_time ON tx_fact_addresses(token_address, timestamp);
       CREATE INDEX IF NOT EXISTS idx_bucket_token_time ON minute_buckets(token_address, minute_ts);
       CREATE INDEX IF NOT EXISTS idx_special_token_time ON special_flows(token_address, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_wallet_stats_token ON my_wallet_stats(token_address);
     `);
 
     this._ensureColumn('token_meta', 'total_supply', "TEXT NOT NULL DEFAULT '0'");
@@ -291,6 +315,42 @@ export class TrackerDB {
       ON CONFLICT(block_number) DO UPDATE SET timestamp = excluded.timestamp
     `);
 
+    this.stmtClearMyWallets = this.db.prepare('DELETE FROM my_wallets');
+    this.stmtInsertMyWallet = this.db.prepare(`
+      INSERT OR REPLACE INTO my_wallets(addr, label, created_at)
+      VALUES(@addr, @label, @created_at)
+    `);
+    this.stmtGetMyWallets = this.db.prepare('SELECT addr, label, created_at FROM my_wallets ORDER BY created_at ASC');
+    this.stmtGetMyWalletStat = this.db.prepare(`
+      SELECT * FROM my_wallet_stats
+      WHERE token_address = ? AND wallet_address = ?
+    `);
+    this.stmtDeleteMyWalletStat = this.db.prepare(`
+      DELETE FROM my_wallet_stats
+      WHERE token_address = ? AND wallet_address = ?
+    `);
+    this.stmtUpsertMyWalletStat = this.db.prepare(`
+      INSERT INTO my_wallet_stats(
+        token_address, wallet_address, spent_virtual_sum, received_token_sum, sold_token_sum, received_virtual_sum,
+        transfer_in_sum, transfer_out_sum, total_in_sum, total_out_sum, tx_count, last_active_time, updated_at
+      ) VALUES(
+        @token_address, @wallet_address, @spent_virtual_sum, @received_token_sum, @sold_token_sum, @received_virtual_sum,
+        @transfer_in_sum, @transfer_out_sum, @total_in_sum, @total_out_sum, @tx_count, @last_active_time, @updated_at
+      )
+      ON CONFLICT(token_address, wallet_address) DO UPDATE SET
+        spent_virtual_sum = excluded.spent_virtual_sum,
+        received_token_sum = excluded.received_token_sum,
+        sold_token_sum = excluded.sold_token_sum,
+        received_virtual_sum = excluded.received_virtual_sum,
+        transfer_in_sum = excluded.transfer_in_sum,
+        transfer_out_sum = excluded.transfer_out_sum,
+        total_in_sum = excluded.total_in_sum,
+        total_out_sum = excluded.total_out_sum,
+        tx_count = excluded.tx_count,
+        last_active_time = excluded.last_active_time,
+        updated_at = excluded.updated_at
+    `);
+
     this.txInsertTransfers = this.db.transaction((rows) => {
       const newTxHashes = new Set();
       const insertedRows = [];
@@ -346,6 +406,130 @@ export class TrackerDB {
       }
       return count;
     });
+
+    this.txSaveMyWallets = this.db.transaction((rows) => {
+      this.stmtClearMyWallets.run();
+      for (const row of rows || []) {
+        this.stmtInsertMyWallet.run({
+          addr: row.addr,
+          label: row.label || '',
+          created_at: nowMs(),
+        });
+      }
+    });
+
+    this.txApplyMyWalletTransferRows = this.db.transaction((tokenAddress, rows, walletSet) => {
+      for (const t of rows || []) {
+        const ts = Number(t.timestamp || 0);
+        const amt = BigInt(t.amount || '0');
+        if (amt <= 0n) continue;
+
+        const from = String(t.from_address || '');
+        const to = String(t.to_address || '');
+
+        if (walletSet.has(from)) {
+          this._adjustMyWalletStat(tokenAddress, from, {
+            transfer_out_sum: amt,
+            total_out_sum: amt,
+            tx_count: 1,
+            last_active_time: ts,
+          });
+        }
+        if (walletSet.has(to)) {
+          this._adjustMyWalletStat(tokenAddress, to, {
+            transfer_in_sum: amt,
+            total_in_sum: amt,
+            tx_count: 1,
+            last_active_time: ts,
+          });
+        }
+      }
+    });
+
+    this.txApplyMyWalletFact = this.db.transaction((fact, walletSet) => {
+      const ts = Number(fact.timestamp || 0);
+      for (const a of fact.addressFacts || []) {
+        const wallet = String(a.wallet_address || '');
+        if (!walletSet.has(wallet)) continue;
+
+        if (a.role === 'buyer') {
+          const recv = BigInt(a.received_token_amount || '0');
+          this._adjustMyWalletStat(fact.token_address, wallet, {
+            spent_virtual_sum: BigInt(a.spent_virtual_amount || '0'),
+            received_token_sum: recv,
+            transfer_in_sum: -recv,
+            last_active_time: ts,
+          });
+        } else if (a.role === 'seller') {
+          const sold = BigInt(a.sold_token_amount || '0');
+          this._adjustMyWalletStat(fact.token_address, wallet, {
+            sold_token_sum: sold,
+            received_virtual_sum: BigInt(a.sold_virtual_amount || '0'),
+            transfer_out_sum: -sold,
+            last_active_time: ts,
+          });
+        }
+      }
+    });
+
+    this.txRebuildMyWalletStats = this.db.transaction((tokenAddress, walletList) => {
+      const wallets = (walletList || []).filter(Boolean);
+      if (!wallets.length) return;
+      const inClause = wallets.map(() => '?').join(', ');
+
+      for (const w of wallets) this.stmtDeleteMyWalletStat.run(tokenAddress, w);
+
+      const transferRows = this.db.prepare(`
+        SELECT tx_hash, timestamp, from_address, to_address, amount
+        FROM transfers
+        WHERE token_address = ? AND (from_address IN (${inClause}) OR to_address IN (${inClause}))
+      `).all(tokenAddress, ...wallets, ...wallets);
+
+      const walletSet = new Set(wallets);
+      this.txApplyMyWalletTransferRows(tokenAddress, transferRows, walletSet);
+
+      const factRows = this.db.prepare(`
+        SELECT a.wallet_address, a.role, a.spent_virtual_amount, a.received_token_amount, a.sold_virtual_amount, a.sold_token_amount, a.timestamp
+        FROM tx_fact_addresses a
+        WHERE a.token_address = ? AND a.wallet_address IN (${inClause})
+      `).all(tokenAddress, ...wallets);
+
+      for (const f of factRows) {
+        const fact = {
+          token_address: tokenAddress,
+          timestamp: Number(f.timestamp || 0),
+          addressFacts: [{
+            wallet_address: f.wallet_address,
+            role: f.role,
+            spent_virtual_amount: f.spent_virtual_amount,
+            received_token_amount: f.received_token_amount,
+            sold_virtual_amount: f.sold_virtual_amount,
+            sold_token_amount: f.sold_token_amount,
+          }],
+        };
+        this.txApplyMyWalletFact(fact, walletSet);
+      }
+    });
+  }
+
+  _adjustMyWalletStat(tokenAddress, walletAddress, delta) {
+    const prev = this.stmtGetMyWalletStat.get(tokenAddress, walletAddress);
+    const next = {
+      token_address: tokenAddress,
+      wallet_address: walletAddress,
+      spent_virtual_sum: (BigInt(prev?.spent_virtual_sum || '0') + BigInt(delta.spent_virtual_sum || 0n)).toString(),
+      received_token_sum: (BigInt(prev?.received_token_sum || '0') + BigInt(delta.received_token_sum || 0n)).toString(),
+      sold_token_sum: (BigInt(prev?.sold_token_sum || '0') + BigInt(delta.sold_token_sum || 0n)).toString(),
+      received_virtual_sum: (BigInt(prev?.received_virtual_sum || '0') + BigInt(delta.received_virtual_sum || 0n)).toString(),
+      transfer_in_sum: (BigInt(prev?.transfer_in_sum || '0') + BigInt(delta.transfer_in_sum || 0n)).toString(),
+      transfer_out_sum: (BigInt(prev?.transfer_out_sum || '0') + BigInt(delta.transfer_out_sum || 0n)).toString(),
+      total_in_sum: (BigInt(prev?.total_in_sum || '0') + BigInt(delta.total_in_sum || 0n)).toString(),
+      total_out_sum: (BigInt(prev?.total_out_sum || '0') + BigInt(delta.total_out_sum || 0n)).toString(),
+      tx_count: Number(prev?.tx_count || 0) + Number(delta.tx_count || 0),
+      last_active_time: Math.max(Number(prev?.last_active_time || 0), Number(delta.last_active_time || 0)),
+      updated_at: nowMs(),
+    };
+    this.stmtUpsertMyWalletStat.run(next);
   }
 
   close() {
@@ -426,6 +610,39 @@ export class TrackerDB {
 
   getSpecialFlowsSince(tokenAddress, fromTs) {
     return this.stmtSpecialSince.all(tokenAddress, fromTs);
+  }
+
+  saveMyWallets(rows) {
+    this.txSaveMyWallets(rows || []);
+  }
+
+  getMyWallets() {
+    return this.stmtGetMyWallets.all();
+  }
+
+  applyMyWalletTransferRows(tokenAddress, rows, walletSet) {
+    if (!walletSet || walletSet.size === 0) return;
+    this.txApplyMyWalletTransferRows(tokenAddress, rows || [], walletSet);
+  }
+
+  applyMyWalletFact(fact, walletSet) {
+    if (!walletSet || walletSet.size === 0 || !fact) return;
+    this.txApplyMyWalletFact(fact, walletSet);
+  }
+
+  getMyWalletStats(tokenAddress, walletList) {
+    const list = (walletList || []).filter(Boolean);
+    if (!list.length) return [];
+    const placeholders = list.map(() => '?').join(', ');
+    return this.db.prepare(`
+      SELECT * FROM my_wallet_stats
+      WHERE token_address = ? AND wallet_address IN (${placeholders})
+      ORDER BY wallet_address ASC
+    `).all(tokenAddress, ...list);
+  }
+
+  rebuildMyWalletStatsFromHistory(tokenAddress, walletList) {
+    this.txRebuildMyWalletStats(tokenAddress, walletList || []);
   }
 
   setBlockTimestamp(blockNumber, timestamp) {

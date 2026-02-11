@@ -13,6 +13,10 @@ Node.js + viem + Express + SQLite + SSE implementation for single-token realtime
 - Supports two metric modes:
   - `token_received`: minute sum of received token in suspected-buy facts (tax-after actual received)
   - `virtual_spent`: minute sum of spent VIRTUAL in suspected-buy facts
+- Supports `My Wallets` (multi-address):
+  - parses wallet-involved tx from receipts
+  - computes spent/received/cost/effective cost/breakeven mcap per wallet and total
+  - supports directed historical backfill for wallet addresses
 - Rule engine (core):
   - if minute bucket `t > 3000` and `t+1 > 6000`, trigger entry signal
   - cooldown per token default 10 minutes
@@ -31,6 +35,8 @@ Optional:
 - `COUNTERPARTY_TOKEN_ADDRESSES` comma-separated extra counterparties
 - `METRIC_MODE` = `token_received` or `virtual_spent`
 - rule thresholds/cooldown
+- `MY_WALLET_FROM_BLOCK` directed backfill start block (0 means auto)
+- `MY_WALLET_MAX_BACKFILL_BLOCKS` auto backfill length when `MY_WALLET_FROM_BLOCK=0`
 
 ## Run
 
@@ -43,9 +49,18 @@ Open `http://localhost:5000` if you launched with `PORT=5000`.
 
 ## API
 
-- `POST /api/track/start` body `{ "token_address": "0x..." }`
+- `POST /api/track/start` body:
+  - `token_address`
+  - `myWallets: string[]` (optional)
+  - `my_wallet_from_block` (optional)
 - `POST /api/track/stop`
 - `POST /api/settings/mode` body `{ "metric_mode": "token_received|virtual_spent" }`
+- `POST /api/settings/runtime` supports:
+  - `launch_start_time`
+  - `wallet_address`
+  - `sell_tax_pct`
+  - `myWallets`
+  - `my_wallet_from_block`
 - `GET /api/status`
 - `GET /api/events` (SSE)
 
@@ -57,6 +72,10 @@ Core tables requested in requirement are included:
 - `tx_facts`: per tx interpreted fact (`classification`, `spent_virtual_amount`, `received_token_amount`)
 - `addr_stats`: per address cumulative stats
 - `meta`: token runtime status + `last_processed_block`
+- `my_wallets`: configured wallet list
+- `my_wallet_stats`: incremental per-wallet stats:
+  - `spent_virtual_sum`, `received_token_sum`, `sold_token_sum`, `received_virtual_sum`
+  - `transfer_in_sum`, `transfer_out_sum`, `total_in_sum`, `total_out_sum`
 
 Extended tables for performance/stability:
 
@@ -70,6 +89,7 @@ Extended tables for performance/stability:
 
 - Incremental `eth_getLogs` with chunked ranges (`LOG_CHUNK_SIZE`)
 - Replay pull of recent blocks every loop (`REPLAY_RECENT_BLOCKS`) to reduce miss risk
+- Directed wallet backfill runs in queue and only processes transfers involving configured `myWallets`
 - All writes idempotent by unique keys; replay cannot double-count
 - RPC retry with exponential backoff + jitter
 - SSE updates throttled (`UPDATE_THROTTLE_MS`, default 2s)
@@ -114,6 +134,19 @@ In `.env` temporarily set:
 - `RULE_COOLDOWN_MINUTES=1`
 
 Then start tracking an active token. You should quickly observe front-end signal popup and cooldown state changes.
+
+### Validate My Wallet cost/breakeven correctness
+
+1. In UI, fill `My Wallets` with one or more addresses and click `Apply Wallets`.
+2. Start tracking token and wait for wallet directed backfill completion.
+3. Confirm `My Wallets` panel fields change with incoming txs:
+   - buy: `spent V` and `received T` increase
+   - sell: `sold T` and `received V` increase
+4. Validate formulas:
+   - `costPerToken = spentVirtualSum / receivedTokenSum`
+   - `effectiveCostPerToken = costPerToken / (1 - sellTaxPct)`
+   - `breakevenMcap = effectiveCostPerToken * totalSupply`
+5. Total row should equal sum of wallet detail rows.
 
 ## Project structure
 
