@@ -423,8 +423,8 @@
           <input id="sellTaxInput" class="input" style="width:110px" placeholder="SellTax %" value="1" data-i18n-ph="ph_sell_tax" />
           <button id="startBtn" class="btn" data-i18n="start_track">开始追踪</button>
           <button id="stopBtn" class="btn" data-i18n="stop_track">停止</button>
-          <button id="modeToken" class="btn active" data-mode="token_received" data-i18n="mode_token">口径 Token</button>
-          <button id="modeVirtual" class="btn" data-mode="virtual_spent" data-i18n="mode_virtual">口径 Virtual</button>
+          <button id="modeToken" class="btn active" data-mode="token_received" data-i18n="mode_token">Token</button>
+          <button id="modeVirtual" class="btn" data-mode="virtual_spent" data-i18n="mode_virtual">Virtual</button>
         </div>
         <div class="wallet-cfg">
           <textarea id="myWalletsInput" class="input wallet-textarea" placeholder="Add wallet addresses (one per line)" data-i18n-ph="ph_wallets"></textarea>
@@ -1381,6 +1381,7 @@
       }
 
       function renderMyWalletStats(data) {
+        if (!myWalletTotalBody || !myWalletBody || !myWalletStatusChip) return;
         const st = data?.status || {};
         const state = String(st.state || 'idle');
         const stateText = state === 'running'
@@ -1398,16 +1399,16 @@
           ? `Error: ${st.last_error}`
           : (st.last_at ? `Last: ${new Date(st.last_at * 1000).toLocaleTimeString()} | Reason: ${st.last_reason || '-'}` : t('wallet_state_idle'));
 
-        const t = data?.total || {};
+        const totalStat = data?.total || {};
         myWalletTotalBody.innerHTML = `
           <tr>
             <td>${t('wallet_total')} (${(data?.addresses || []).length})</td>
-            <td>${fmt(t.balance || 0)}</td>
-            <td>${fmt(t.spent_virtual_sum || 0)}</td>
-            <td>${fmt(t.received_token_sum || 0)}</td>
-            <td>${fmt(t.cost_per_token || 0)}</td>
-            <td>${fmt(t.effective_cost_per_token || 0)}</td>
-            <td>${fmt(t.breakeven_mcap || 0)}</td>
+            <td>${fmt(totalStat.balance || 0)}</td>
+            <td>${fmt(totalStat.spent_virtual_sum || 0)}</td>
+            <td>${fmt(totalStat.received_token_sum || 0)}</td>
+            <td>${fmt(totalStat.cost_per_token || 0)}</td>
+            <td>${fmt(totalStat.effective_cost_per_token || 0)}</td>
+            <td>${fmt(totalStat.breakeven_mcap || 0)}</td>
             <td>-</td>
           </tr>
         `;
@@ -1582,7 +1583,7 @@
         applyMyWalletsRuntime(true);
       });
 
-      myWalletTags.addEventListener('click', (ev) => {
+      myWalletTags?.addEventListener('click', (ev) => {
         const btn = ev.target?.closest?.('[data-del-wallet]');
         if (!btn) return;
         const addr = btn.getAttribute('data-del-wallet');
@@ -1592,7 +1593,7 @@
         applyMyWalletsRuntime(true);
       });
 
-      myWalletTags.addEventListener('input', (ev) => {
+      myWalletTags?.addEventListener('input', (ev) => {
         const input = ev.target?.closest?.('[data-label-wallet]');
         if (!input) return;
         const addr = input.getAttribute('data-label-wallet');
@@ -1600,7 +1601,7 @@
         localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
       });
 
-      myWalletBody.addEventListener('click', async (ev) => {
+      myWalletBody?.addEventListener('click', async (ev) => {
         const btn = ev.target?.closest?.('[data-copy]');
         if (!btn) return;
         const addr = btn.getAttribute('data-copy');
@@ -1740,9 +1741,6 @@
     </script>
   </body>
 </html>
-
-
-
 
 
 
