@@ -1,0 +1,21 @@
+{
+  "name": "virtuals-realtime-decision-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "On-chain realtime decision assistant for Virtuals sniping on Base",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "replay": "node scripts/replay-range.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "viem": "^2.24.3"
+  }
+}
