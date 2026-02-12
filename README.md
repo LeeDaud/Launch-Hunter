@@ -9,18 +9,18 @@ This repo is now split for deployment:
 
 ```text
 .
-©À©¤ backend/                     # Node.js backend service
-©¦  ©À©¤ src/                      # Express API, tracker, DB, rules
-©¦  ©¸©¤ scripts/                  # utility scripts (e.g. replay)
-©À©¤ frontend/                    # static frontend app (for Vercel)
-©¦  ©À©¤ public/                   # index.html and static assets
-©¦  ©À©¤ build.mjs                 # inject API_BASE into runtime-config.js
-©¦  ©À©¤ package.json
-©¦  ©¸©¤ vercel.json
-©À©¤ .env.example
-©À©¤ DEPLOY_LINUX_PM2_NGINX.md
-©À©¤ TECHNICAL_DOC.md
-©¸©¤ package.json
+|- backend/                      # Node.js backend service
+|  |- src/                       # Express API, tracker, DB, rules
+|  \- scripts/                   # utility scripts (e.g. replay)
+|- frontend/                     # static frontend app (for Vercel)
+|  |- public/                    # index.html and static assets
+|  |- build.mjs                  # inject API_BASE into runtime-config.js
+|  |- package.json
+|  \- vercel.json
+|- .env.example
+|- DEPLOY_LINUX_PM2_NGINX.md
+|- TECHNICAL_DOC.md
+\- package.json
 ```
 
 ## Backend run
