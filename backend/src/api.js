@@ -4,6 +4,7 @@ import { isAddress } from 'viem';
 export function createApi({ tracker, db }) {
   const router = express.Router();
   const clients = new Set();
+  const etherscanApiKey = String(process.env.ETHERSCAN_API_KEY || '').trim();
 
   const send = (res, event, data) => {
     res.write(`event: ${event}\n`);
@@ -41,6 +42,68 @@ export function createApi({ tracker, db }) {
     if (!isAddress(token)) return res.status(400).json({ ok: false, error: 'invalid token query param' });
     const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 50)));
     res.json({ ok: true, token, rows: db.getRecentFacts(token, limit) });
+  });
+
+  router.get('/explorer/tokentx', async (req, res) => {
+    if (!etherscanApiKey) {
+      return res.status(500).json({ ok: false, error: 'ETHERSCAN_API_KEY is not configured' });
+    }
+
+    const address = String(req.query?.address || '').trim().toLowerCase();
+    const contractAddress = String(req.query?.contractaddress || '').trim().toLowerCase();
+    const chainId = String(req.query?.chainid || process.env.ETHERSCAN_CHAIN_ID || '8453').trim();
+    const startBlock = String(req.query?.startblock || '0').trim();
+    const endBlock = String(req.query?.endblock || '99999999').trim();
+    const page = String(req.query?.page || '1').trim();
+    const offset = String(req.query?.offset || '100').trim();
+    const sort = String(req.query?.sort || 'desc').trim().toLowerCase();
+
+    if (!isAddress(address)) return res.status(400).json({ ok: false, error: 'invalid address' });
+    if (contractAddress && !isAddress(contractAddress)) return res.status(400).json({ ok: false, error: 'invalid contractaddress' });
+    if (!/^\d+$/.test(chainId)) return res.status(400).json({ ok: false, error: 'invalid chainid' });
+    if (!/^\d+$/.test(startBlock) || !/^\d+$/.test(endBlock) || !/^\d+$/.test(page) || !/^\d+$/.test(offset)) {
+      return res.status(400).json({ ok: false, error: 'invalid pagination or block range' });
+    }
+    if (sort !== 'asc' && sort !== 'desc') return res.status(400).json({ ok: false, error: 'sort must be asc or desc' });
+
+    const url = new URL('https://api.etherscan.io/v2/api');
+    url.searchParams.set('apikey', etherscanApiKey);
+    url.searchParams.set('chainid', chainId);
+    url.searchParams.set('module', 'account');
+    url.searchParams.set('action', 'tokentx');
+    url.searchParams.set('address', address);
+    if (contractAddress) url.searchParams.set('contractaddress', contractAddress);
+    url.searchParams.set('startblock', startBlock);
+    url.searchParams.set('endblock', endBlock);
+    url.searchParams.set('page', page);
+    url.searchParams.set('offset', offset);
+    url.searchParams.set('sort', sort);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const upstreamRes = await fetch(url, { method: 'GET', signal: controller.signal });
+      const upstream = await upstreamRes.json();
+      return res.status(upstreamRes.ok ? 200 : 502).json({
+        ok: upstreamRes.ok,
+        upstream_status: upstreamRes.status,
+        request: {
+          chainid: chainId,
+          address,
+          contractaddress: contractAddress || null,
+          startblock: startBlock,
+          endblock: endBlock,
+          page,
+          offset,
+          sort,
+        },
+        upstream,
+      });
+    } catch (err) {
+      return res.status(502).json({ ok: false, error: String(err?.message || err) });
+    } finally {
+      clearTimeout(timeout);
+    }
   });
 
   router.post('/track/start', async (req, res) => {

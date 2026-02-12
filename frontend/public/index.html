@@ -558,6 +558,43 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:10px;">
+        <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Explorer TokenTx</div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="explorerAddressInput" class="input mono grow" placeholder="address (wallet or contract, required)" />
+          <input id="explorerContractInput" class="input mono grow" placeholder="contractaddress (token, optional)" />
+          <input id="explorerChainIdInput" class="input mono" style="width:100px" value="8453" placeholder="chainid" />
+          <select id="explorerSortInput" class="input" style="width:100px">
+            <option value="desc" selected>desc</option>
+            <option value="asc">asc</option>
+          </select>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="explorerStartBlockInput" class="input mono" style="width:140px" value="0" placeholder="startblock" />
+          <input id="explorerEndBlockInput" class="input mono" style="width:140px" value="99999999" placeholder="endblock" />
+          <input id="explorerPageInput" class="input mono" style="width:100px" value="1" placeholder="page" />
+          <input id="explorerOffsetInput" class="input mono" style="width:100px" value="50" placeholder="offset" />
+          <button id="explorerQueryBtn" class="btn" type="button">Query</button>
+          <button id="explorerResetBtn" class="btn btn-light" type="button">Reset</button>
+          <span id="explorerStatusText" class="mono" style="font-size:12px;color:#9fc2df;"></span>
+        </div>
+        <div class="table-wrap" style="max-height:34vh;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Hash</th>
+                <th>Token</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody id="explorerTxBody"></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
 
     <div id="launchModal" class="launch-modal hidden" role="dialog" aria-modal="true" aria-labelledby="launchSheetTitle">
@@ -650,6 +687,18 @@
       const kpiCd = $('kpiCd');
       const kpiRmv = $('kpiRmv');
       const kpiCost = $('kpiCost');
+      const explorerAddressInput = $('explorerAddressInput');
+      const explorerContractInput = $('explorerContractInput');
+      const explorerChainIdInput = $('explorerChainIdInput');
+      const explorerStartBlockInput = $('explorerStartBlockInput');
+      const explorerEndBlockInput = $('explorerEndBlockInput');
+      const explorerPageInput = $('explorerPageInput');
+      const explorerOffsetInput = $('explorerOffsetInput');
+      const explorerSortInput = $('explorerSortInput');
+      const explorerQueryBtn = $('explorerQueryBtn');
+      const explorerResetBtn = $('explorerResetBtn');
+      const explorerStatusText = $('explorerStatusText');
+      const explorerTxBody = $('explorerTxBody');
 
       let latest = null;
       let flashUntil = 0;
@@ -673,6 +722,7 @@
       const LS_MY_WALLETS_LABELS_KEY = 'myWalletsLabels';
       const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
       const LS_LANG_KEY = 'uiLang';
+      const LS_EXPLORER_OPTS_KEY = 'explorerTokentxOptions';
       let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
       const API_BASE = String(window.__API_BASE__ || '').trim().replace(/\/+$/, '');
       const apiUrl = (pathname) => {
@@ -688,6 +738,14 @@
       let myWallets = [];
       let walletLabels = {};
       let launchStartSec = 0;
+      const EXPLORER_DEFAULTS = {
+        chainid: '8453',
+        startblock: '0',
+        endblock: '99999999',
+        page: '1',
+        offset: '50',
+        sort: 'desc',
+      };
       const I18N = {
         zh: {
           ph_token: 'Token 合约地址 (0x...)',
@@ -1230,6 +1288,146 @@
         return `${sign}${x.toFixed(4)}`;
       }
 
+      function isHexAddress(v) {
+        return /^0x[a-fA-F0-9]{40}$/.test(String(v || '').trim());
+      }
+
+      function normalizeExplorerOptions(raw) {
+        const src = raw || {};
+        const next = {
+          address: String(src.address || '').trim(),
+          contractaddress: String(src.contractaddress || '').trim(),
+          chainid: String(src.chainid || EXPLORER_DEFAULTS.chainid).trim(),
+          startblock: String(src.startblock || EXPLORER_DEFAULTS.startblock).trim(),
+          endblock: String(src.endblock || EXPLORER_DEFAULTS.endblock).trim(),
+          page: String(src.page || EXPLORER_DEFAULTS.page).trim(),
+          offset: String(src.offset || EXPLORER_DEFAULTS.offset).trim(),
+          sort: String(src.sort || EXPLORER_DEFAULTS.sort).trim().toLowerCase(),
+        };
+        if (next.sort !== 'asc' && next.sort !== 'desc') next.sort = EXPLORER_DEFAULTS.sort;
+        return next;
+      }
+
+      function setExplorerStatus(text, level = '') {
+        if (!explorerStatusText) return;
+        const color = level === 'err'
+          ? '#ffb5c2'
+          : level === 'ok'
+            ? '#bdeecf'
+            : level === 'warn'
+              ? '#ffd89d'
+              : '#9fc2df';
+        explorerStatusText.style.color = color;
+        explorerStatusText.textContent = text;
+      }
+
+      function applyExplorerOptions(opts, resetAddressAndContract = false) {
+        if (!explorerAddressInput) return;
+        const value = normalizeExplorerOptions(opts);
+        const wallet = String(walletInput?.value || '').trim();
+        const token = String(tokenInput?.value || '').trim();
+        const fallbackAddress = isHexAddress(wallet) ? wallet : '';
+        const fallbackContract = isHexAddress(token) ? token : '';
+        if (resetAddressAndContract) {
+          explorerAddressInput.value = fallbackAddress;
+          explorerContractInput.value = fallbackContract;
+        } else {
+          explorerAddressInput.value = value.address || fallbackAddress;
+          explorerContractInput.value = value.contractaddress || fallbackContract;
+        }
+        explorerChainIdInput.value = value.chainid;
+        explorerStartBlockInput.value = value.startblock;
+        explorerEndBlockInput.value = value.endblock;
+        explorerPageInput.value = value.page;
+        explorerOffsetInput.value = value.offset;
+        explorerSortInput.value = value.sort;
+      }
+
+      function readExplorerOptions() {
+        return normalizeExplorerOptions({
+          address: explorerAddressInput?.value,
+          contractaddress: explorerContractInput?.value,
+          chainid: explorerChainIdInput?.value,
+          startblock: explorerStartBlockInput?.value,
+          endblock: explorerEndBlockInput?.value,
+          page: explorerPageInput?.value,
+          offset: explorerOffsetInput?.value,
+          sort: explorerSortInput?.value,
+        });
+      }
+
+      function saveExplorerOptions(opts) {
+        localStorage.setItem(LS_EXPLORER_OPTS_KEY, JSON.stringify(normalizeExplorerOptions(opts)));
+      }
+
+      function renderExplorerRows(rows) {
+        if (!explorerTxBody) return;
+        const list = Array.isArray(rows) ? rows : [];
+        explorerTxBody.innerHTML = list.map((r) => {
+          const ts = Number(r.timeStamp || 0);
+          const tm = ts > 0 ? new Date(ts * 1000).toLocaleString() : '-';
+          const hash = String(r.hash || '');
+          const from = String(r.from || '');
+          const to = String(r.to || '');
+          const tokenSymbol = String(r.tokenSymbol || '-');
+          const tokenDecimal = Number(r.tokenDecimal || 18);
+          const valueRaw = Number(r.value || 0);
+          const value = Number.isFinite(valueRaw) ? valueRaw / (10 ** Math.min(30, Math.max(0, tokenDecimal))) : 0;
+          return `
+            <tr>
+              <td>${tm}</td>
+              <td class="mono" title="${hash}">${shortAddr(hash)}</td>
+              <td>${tokenSymbol}</td>
+              <td class="mono" title="${from}">${shortAddr(from)}</td>
+              <td class="mono" title="${to}">${shortAddr(to)}</td>
+              <td>${fmt(value)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      async function queryExplorerTokentx() {
+        const opts = readExplorerOptions();
+        if (!isHexAddress(opts.address)) {
+          setExplorerStatus('address is required and must be 0x...', 'err');
+          return;
+        }
+        if (opts.contractaddress && !isHexAddress(opts.contractaddress)) {
+          setExplorerStatus('contractaddress must be 0x... or empty', 'err');
+          return;
+        }
+
+        saveExplorerOptions(opts);
+        setExplorerStatus('querying...', 'warn');
+        explorerQueryBtn.disabled = true;
+
+        const url = new URL(apiUrl('/api/explorer/tokentx'), window.location.origin);
+        url.searchParams.set('address', opts.address);
+        if (opts.contractaddress) url.searchParams.set('contractaddress', opts.contractaddress);
+        url.searchParams.set('chainid', opts.chainid);
+        url.searchParams.set('startblock', opts.startblock);
+        url.searchParams.set('endblock', opts.endblock);
+        url.searchParams.set('page', opts.page);
+        url.searchParams.set('offset', opts.offset);
+        url.searchParams.set('sort', opts.sort);
+
+        try {
+          const r = await fetch(url.toString(), { cache: 'no-store' });
+          const d = await r.json();
+          if (!r.ok || !d?.ok) {
+            const msg = d?.error || d?.upstream?.message || 'query failed';
+            throw new Error(msg);
+          }
+          const rows = d?.upstream?.result || [];
+          renderExplorerRows(rows);
+          setExplorerStatus(`ok, rows=${rows.length}` , 'ok');
+        } catch (err) {
+          setExplorerStatus(String(err?.message || err), 'err');
+        } finally {
+          explorerQueryBtn.disabled = false;
+        }
+      }
+
       function setModeBtn(mode) {
         $('modeToken').classList.toggle('active', mode === 'token_received');
         $('modeVirtual').classList.toggle('active', mode === 'virtual_spent');
@@ -1549,6 +1747,17 @@
         });
       });
 
+      explorerQueryBtn?.addEventListener('click', async () => {
+        await queryExplorerTokentx();
+      });
+
+      explorerResetBtn?.addEventListener('click', () => {
+        applyExplorerOptions(EXPLORER_DEFAULTS, true);
+        saveExplorerOptions(readExplorerOptions());
+        renderExplorerRows([]);
+        setExplorerStatus('reset done');
+      });
+
       [walletInput, sellTaxInput].forEach((el) => {
         el.addEventListener('change', async () => {
           try {
@@ -1733,6 +1942,13 @@
       myWalletsInput.value = '';
       renderMyWalletTags();
       applyMyWalletsRuntime(false);
+      const explorerSavedRaw = localStorage.getItem(LS_EXPLORER_OPTS_KEY);
+      let explorerSaved = EXPLORER_DEFAULTS;
+      if (explorerSavedRaw) {
+        try { explorerSaved = normalizeExplorerOptions(JSON.parse(explorerSavedRaw)); } catch {}
+      }
+      applyExplorerOptions(explorerSaved, false);
+      setExplorerStatus('ready');
       connectEvents();
 
       fetch(apiUrl('/api/status')).then((r) => r.json()).then((d) => {
@@ -1749,4 +1965,3 @@
     </script>
   </body>
 </html>
-
