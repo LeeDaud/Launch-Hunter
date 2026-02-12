@@ -1,0 +1,1008 @@
+﻿import { decodeEventLog, formatUnits, isAddress, parseAbiItem, zeroAddress } from 'viem';
+import { buildCounterpartyList, calcBuyTaxPct, config } from './config.js';
+import { logger } from './logger.js';
+import { minuteFloor, nowSec, safeAddress, sleep, toFloat } from './utils.js';
+
+const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
+
+function chunkRanges(fromBlock, toBlock, span) {
+  const out = [];
+  let cursor = fromBlock;
+  while (cursor <= toBlock) {
+    const end = Math.min(cursor + span - 1, toBlock);
+    out.push([cursor, end]);
+    cursor = end + 1;
+  }
+  return out;
+}
+
+export class TokenTrackerTask {
+  constructor({ tokenAddress, db, rpc, ruleEngine, runtimeConfig, specialAddresses, onUpdate }) {
+    this.tokenAddress = safeAddress(tokenAddress);
+    this.db = db;
+    this.rpc = rpc;
+    this.ruleEngine = ruleEngine;
+    this.runtimeConfig = runtimeConfig;
+    this.specialAddresses = specialAddresses || [];
+    this.onUpdate = onUpdate;
+
+    this.running = false;
+    this.stopFlag = false;
+    this.backfillDone = false;
+    this.unwatchHead = null;
+    this.lastKnownHead = 0;
+    this.lastEmitAt = 0;
+    this.lastChainTimeSec = 0;
+    this.currentMetricMode = config.metricMode === 'virtual_spent' ? 'virtual_spent' : 'token_received';
+
+    this.blockTsCache = new Map();
+    this.tokenMetaCache = new Map();
+    this.counterpartyList = buildCounterpartyList();
+    this.specialMap = new Map(this.specialAddresses.map((s) => [safeAddress(s.address), s]));
+    this.myWalletSet = new Set();
+    this.scanQueue = Promise.resolve();
+    this.walletBackfillQueued = false;
+    this.walletBackfillRunning = false;
+    this.walletBackfillStatus = 'idle';
+    this.walletBackfillLastAt = 0;
+    this.walletBackfillLastError = '';
+    this.walletBackfillLastReason = '';
+    this.lastIngest = {
+      start: 0,
+      end: 0,
+      log_count: 0,
+      tx_count: 0,
+      no_transfers_in_window: false,
+      updated_at: 0,
+      wallet_filtered: false,
+    };
+    this.refreshMyWalletSet();
+  }
+
+  async start() {
+    this.running = true;
+    this.stopFlag = false;
+    this.db.setMeta(this.tokenAddress, { running: 1 });
+
+    await this.ensureTokenMeta(this.tokenAddress);
+    for (const addr of this.counterpartyList) {
+      if (addr) await this.ensureTokenMeta(addr);
+    }
+
+    const latest = Number(await this.rpc.getBlockNumber());
+    this.lastKnownHead = latest;
+    const state = this.db.getMeta(this.tokenAddress);
+    const startFrom = state?.last_processed_block
+      ? Number(state.last_processed_block) + 1
+      : Math.max(0, latest - config.backfillBlocks);
+
+    logger.info('task start', {
+      token: this.tokenAddress,
+      startFrom,
+      latest,
+      counterpartyCount: this.counterpartyList.length,
+      specialCount: this.specialAddresses.length,
+    });
+
+    if (startFrom <= latest) {
+      await this.enqueueScan(startFrom, latest, false, null);
+    }
+
+    this.backfillDone = true;
+    this.emitUpdate(true, 'backfill_complete');
+    this.requestWalletBackfill('initial');
+
+    this.unwatchHead = this.rpc.subscribeNewHeads((bn) => {
+      this.lastKnownHead = Math.max(this.lastKnownHead, bn);
+    });
+
+    while (!this.stopFlag) {
+      try {
+        const currentHead = Number(await this.rpc.getBlockNumber());
+        this.lastKnownHead = Math.max(this.lastKnownHead, currentHead);
+
+        const meta = this.db.getMeta(this.tokenAddress);
+        const lastProcessed = Number(meta?.last_processed_block || 0);
+        if (this.lastKnownHead >= lastProcessed) {
+          const replayFrom = Math.max(0, lastProcessed - config.replayRecentBlocks + 1);
+          await this.enqueueScan(replayFrom, this.lastKnownHead, true, null);
+        }
+
+        this.emitUpdate(false, 'tick');
+      } catch (err) {
+        logger.error('task loop failed', { error: String(err?.message || err) });
+      }
+
+      await sleep(config.pollingIntervalMs);
+    }
+
+    if (this.unwatchHead) {
+      try { this.unwatchHead(); } catch {}
+    }
+
+    this.running = false;
+    this.db.setMeta(this.tokenAddress, { running: 0 });
+    this.emitUpdate(true, 'stopped');
+  }
+
+  async stop() {
+    this.stopFlag = true;
+  }
+
+  setMetricMode(mode) {
+    this.currentMetricMode = mode === 'virtual_spent' ? 'virtual_spent' : 'token_received';
+  }
+
+  refreshMyWalletSet() {
+    const list = Array.isArray(this.runtimeConfig?.myWallets) ? this.runtimeConfig.myWallets : [];
+    this.myWalletSet = new Set(list.map((x) => String(x || '').trim().toLowerCase()).filter((x) => isAddress(x)));
+  }
+
+  onRuntimeUpdated({ myWalletsChanged, myWalletFromBlockChanged } = {}) {
+    if (myWalletsChanged) this.refreshMyWalletSet();
+    if (myWalletsChanged || myWalletFromBlockChanged) {
+      this.requestWalletBackfill('runtime_update');
+      this.emitUpdate(true, 'wallets_updated');
+    }
+  }
+
+  enqueueScan(fromBlock, toBlock, isReplay, walletFilterSet) {
+    this.scanQueue = this.scanQueue
+      .then(() => this.scanRange(fromBlock, toBlock, isReplay, walletFilterSet))
+      .catch((err) => logger.error('scan queue failed', { error: String(err?.message || err) }));
+    return this.scanQueue;
+  }
+
+  requestWalletBackfill(reason) {
+    if (!this.running || this.stopFlag) return;
+    if (!this.myWalletSet.size) return;
+    this.walletBackfillQueued = true;
+    this.walletBackfillStatus = 'queued';
+    this.walletBackfillLastReason = String(reason || '');
+    this.walletBackfillLastError = '';
+    this.walletBackfillLastAt = nowSec();
+    this.emitUpdate(true, 'wallet_backfill_queued');
+    setTimeout(() => this.runWalletBackfill(reason), 0);
+  }
+
+  async runWalletBackfill(reason) {
+    if (!this.walletBackfillQueued || this.walletBackfillRunning || this.stopFlag) return;
+    this.walletBackfillQueued = false;
+    this.walletBackfillRunning = true;
+    this.walletBackfillStatus = 'running';
+    this.walletBackfillLastReason = String(reason || '');
+    this.walletBackfillLastError = '';
+    this.walletBackfillLastAt = nowSec();
+    this.emitUpdate(true, 'wallet_backfill_running');
+    try {
+      const head = Number(await this.rpc.getBlockNumber());
+      const configuredFrom = Number(this.runtimeConfig.myWalletFromBlock || 0);
+      const fallbackFrom = Math.max(0, head - Math.max(1, Number(config.myWalletMaxBackfillBlocks || 500000)));
+      const fromBlock = configuredFrom > 0 ? configuredFrom : fallbackFrom;
+      logger.info('wallet directed backfill start', {
+        token: this.tokenAddress,
+        reason,
+        fromBlock,
+        head,
+        wallets: this.myWalletSet.size,
+      });
+      await this.enqueueScan(fromBlock, head, true, this.myWalletSet);
+      this.db.rebuildMyWalletStatsFromHistory(this.tokenAddress, Array.from(this.myWalletSet));
+      this.walletBackfillStatus = 'done';
+      this.walletBackfillLastAt = nowSec();
+      this.walletBackfillLastError = '';
+      this.emitUpdate(true, 'wallet_backfill_done');
+    } catch (err) {
+      this.walletBackfillStatus = 'error';
+      this.walletBackfillLastAt = nowSec();
+      this.walletBackfillLastError = String(err?.message || err);
+      logger.warn('wallet directed backfill failed', { error: String(err?.message || err) });
+      this.emitUpdate(true, 'wallet_backfill_error');
+    } finally {
+      this.walletBackfillRunning = false;
+      if (this.walletBackfillQueued) setTimeout(() => this.runWalletBackfill('requeue'), 0);
+    }
+  }
+
+  async ensureTokenMeta(tokenAddress) {
+    const address = safeAddress(tokenAddress);
+    if (!address) return { decimals: 18, totalSupply: '0' };
+    if (this.tokenMetaCache.has(address)) return this.tokenMetaCache.get(address);
+
+    const cached = this.db.getTokenMeta(address);
+    if (cached && Number(cached.decimals) > 0) {
+      const data = { decimals: Number(cached.decimals), totalSupply: String(cached.total_supply || '0') };
+      this.tokenMetaCache.set(address, data);
+      return data;
+    }
+
+    const decimals = Number(await this.rpc.readDecimals(address));
+    let totalSupply = '0';
+    try {
+      totalSupply = String(await this.rpc.readTotalSupply(address));
+    } catch {
+      totalSupply = '0';
+    }
+
+    const data = { decimals, totalSupply };
+    this.db.upsertTokenMeta(address, decimals, totalSupply, null);
+    this.tokenMetaCache.set(address, data);
+    return data;
+  }
+
+  async getBlockTimestamp(blockNumber) {
+    const bn = Number(blockNumber);
+    if (this.blockTsCache.has(bn)) return this.blockTsCache.get(bn);
+
+    const cached = this.db.getBlockTimestamp(bn);
+    if (cached != null) {
+      this.blockTsCache.set(bn, cached);
+      return cached;
+    }
+
+    const block = await this.rpc.getBlock(BigInt(bn));
+    const ts = Number(block.timestamp);
+    this.blockTsCache.set(bn, ts);
+    this.db.setBlockTimestamp(bn, ts);
+    return ts;
+  }
+
+  async fillMissingBlockTimestamps(logs) {
+    const missing = new Set();
+    for (const log of logs) {
+      const bn = Number(log.blockNumber);
+      if (!this.blockTsCache.has(bn) && this.db.getBlockTimestamp(bn) == null) missing.add(bn);
+    }
+
+    for (const bn of missing) {
+      const block = await this.rpc.getBlock(BigInt(bn));
+      const ts = Number(block.timestamp);
+      this.blockTsCache.set(bn, ts);
+      this.db.setBlockTimestamp(bn, ts);
+    }
+  }
+
+  async scanRange(fromBlock, toBlock, isReplay, walletFilterSet = null) {
+    if (toBlock < fromBlock) return;
+
+    const ranges = chunkRanges(fromBlock, toBlock, config.logChunkSize);
+    for (const [start, end] of ranges) {
+      if (this.stopFlag) return;
+      logger.info('range pull start', {
+        token: this.tokenAddress,
+        start,
+        end,
+        replay: isReplay,
+        walletFiltered: Boolean(walletFilterSet && walletFilterSet.size),
+      });
+
+      const logs = await this.rpc.getLogs({
+        address: this.tokenAddress,
+        event: TRANSFER_EVENT,
+        fromBlock: BigInt(start),
+        toBlock: BigInt(end),
+      });
+      logger.info('range pull fetched', {
+        token: this.tokenAddress,
+        start,
+        end,
+        logCount: logs.length,
+      });
+
+      await this.fillMissingBlockTimestamps(logs);
+
+      const transferRows = [];
+      for (const log of logs) {
+        if (!log.transactionHash || log.logIndex == null) continue;
+        let decoded;
+        try {
+          decoded = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data });
+        } catch {
+          continue;
+        }
+
+        const bn = Number(log.blockNumber);
+        const ts = this.blockTsCache.get(bn) ?? this.db.getBlockTimestamp(bn) ?? await this.getBlockTimestamp(bn);
+
+        transferRows.push({
+          token_address: this.tokenAddress,
+          tx_hash: safeAddress(log.transactionHash),
+          log_index: Number(log.logIndex),
+          block_number: bn,
+          timestamp: ts,
+          from_address: safeAddress(decoded.args.from),
+          to_address: safeAddress(decoded.args.to),
+          amount: BigInt(decoded.args.value).toString(),
+        });
+      }
+
+      const filteredRows = walletFilterSet && walletFilterSet.size
+        ? transferRows.filter((r) => walletFilterSet.has(r.from_address) || walletFilterSet.has(r.to_address))
+        : transferRows;
+      const rangeTxHashes = Array.from(new Set(filteredRows.map((r) => r.tx_hash).filter(Boolean)));
+
+      const { inserted, newTxHashes, insertedRows } = this.db.insertTransfers(filteredRows);
+      this.db.applyMyWalletTransferRows(this.tokenAddress, insertedRows, this.myWalletSet);
+      this.db.insertSpecialFlows(this.extractSpecialFromTransfers(insertedRows));
+
+      let missingFactTxHashes = [];
+      if (config.enableTxFacts && rangeTxHashes.length) {
+        missingFactTxHashes = this.db.getMissingFactTxHashes(this.tokenAddress, rangeTxHashes);
+        if (missingFactTxHashes.length) {
+          await this.processTxFacts(missingFactTxHashes);
+        }
+      }
+
+      const prev = Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0);
+      this.db.setMeta(this.tokenAddress, { last_processed_block: isReplay ? Math.max(prev, end) : end, running: 1 });
+      const endTs = this.blockTsCache.get(end) ?? this.db.getBlockTimestamp(end) ?? await this.getBlockTimestamp(end);
+      this.lastChainTimeSec = Math.max(this.lastChainTimeSec, Number(endTs || 0));
+      this.lastIngest = {
+        start,
+        end,
+        log_count: logs.length,
+        tx_count: rangeTxHashes.length,
+        no_transfers_in_window: logs.length === 0,
+        updated_at: nowSec(),
+        wallet_filtered: Boolean(walletFilterSet && walletFilterSet.size),
+      };
+      this.emitUpdate(false, 'range_processed');
+
+      logger.info('range done', {
+        token: this.tokenAddress,
+        start,
+        end,
+        logs: logs.length,
+        inserted,
+        newTxCount: newTxHashes.length,
+        missingFactTxCount: missingFactTxHashes.length,
+        rangeTxCount: rangeTxHashes.length,
+          replay: isReplay,
+          walletFiltered: Boolean(walletFilterSet && walletFilterSet.size),
+        });
+      if (config.debugTrackingLogs) {
+        logger.info('range debug', {
+          token: this.tokenAddress,
+          start,
+          end,
+          logs: logs.length,
+          txHashesInRange: rangeTxHashes.length,
+          txFactsQueued: missingFactTxHashes.length,
+        });
+      }
+    }
+  }
+
+  extractSpecialFromTransfers(rows) {
+    const events = [];
+    for (const row of rows || []) {
+      const from = this.specialMap.get(row.from_address);
+      const to = this.specialMap.get(row.to_address);
+      if (from) {
+        events.push({
+          token_address: row.token_address,
+          tx_hash: row.tx_hash,
+          block_number: row.block_number,
+          timestamp: row.timestamp,
+          special_address: row.from_address,
+          label: from.label,
+          category: from.category,
+          asset: 'TOKEN',
+          direction: 'out',
+          amount: row.amount,
+        });
+      }
+      if (to) {
+        events.push({
+          token_address: row.token_address,
+          tx_hash: row.tx_hash,
+          block_number: row.block_number,
+          timestamp: row.timestamp,
+          special_address: row.to_address,
+          label: to.label,
+          category: to.category,
+          asset: 'TOKEN',
+          direction: 'in',
+          amount: row.amount,
+        });
+      }
+    }
+    return events;
+  }
+
+  async processTxFacts(txHashes) {
+    const concurrency = 6;
+    for (let i = 0; i < txHashes.length; i += concurrency) {
+      if (this.stopFlag) return;
+      const chunk = txHashes.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(chunk.map(async (txHash) => {
+        const receipt = await this.rpc.getTransactionReceipt(txHash);
+        return this.classifyTxFromReceipt(receipt);
+      }));
+      for (const one of settled) {
+        if (one.status !== 'fulfilled') continue;
+        const parsed = one.value;
+        if (parsed.fact) {
+          this.db.applyTxFact(parsed.fact);
+          this.db.applyMyWalletFact(parsed.fact, this.myWalletSet);
+        }
+        if (parsed.specialEvents.length) this.db.insertSpecialFlows(parsed.specialEvents);
+      }
+    }
+  }
+
+  async classifyTxFromReceipt(receipt) {
+    const counterpartySet = new Set(this.counterpartyList.map((v) => safeAddress(v)));
+    const token = this.tokenAddress;
+
+    const tokenDelta = new Map();
+    const virtualDelta = new Map();
+    const specialEvents = [];
+    let sawToken = false;
+    let sawVirtual = false;
+
+    const pushSpecial = ({ contract, from, to, amount, blockNumber, timestamp, txHash }) => {
+      const fromSpecial = this.specialMap.get(from);
+      const toSpecial = this.specialMap.get(to);
+      const asset = contract === token ? 'TOKEN' : contract === safeAddress(config.virtualTokenAddress) ? 'VIRTUAL' : 'OTHER';
+      if (fromSpecial) {
+        specialEvents.push({
+          token_address: token,
+          tx_hash: txHash,
+          block_number: blockNumber,
+          timestamp,
+          special_address: from,
+          label: fromSpecial.label,
+          category: fromSpecial.category,
+          asset,
+          direction: 'out',
+          amount: amount.toString(),
+        });
+      }
+      if (toSpecial) {
+        specialEvents.push({
+          token_address: token,
+          tx_hash: txHash,
+          block_number: blockNumber,
+          timestamp,
+          special_address: to,
+          label: toSpecial.label,
+          category: toSpecial.category,
+          asset,
+          direction: 'in',
+          amount: amount.toString(),
+        });
+      }
+    };
+
+    const blockNumber = Number(receipt.blockNumber);
+    const timestamp = await this.getBlockTimestamp(blockNumber);
+
+    for (const log of receipt.logs || []) {
+      if (!log?.topics?.length || !log.address) continue;
+      let decoded;
+      try {
+        decoded = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data, strict: false });
+      } catch {
+        continue;
+      }
+
+      const contract = safeAddress(log.address);
+      const from = safeAddress(decoded.args.from);
+      const to = safeAddress(decoded.args.to);
+      const amount = BigInt(decoded.args.value || 0n);
+      if (amount <= 0n) continue;
+
+      pushSpecial({ contract, from, to, amount, blockNumber, timestamp, txHash: safeAddress(receipt.transactionHash) });
+
+      if (contract === token) {
+        sawToken = true;
+        tokenDelta.set(from, (tokenDelta.get(from) || 0n) - amount);
+        tokenDelta.set(to, (tokenDelta.get(to) || 0n) + amount);
+      }
+      if (counterpartySet.has(contract)) {
+        sawVirtual = true;
+        virtualDelta.set(from, (virtualDelta.get(from) || 0n) - amount);
+        virtualDelta.set(to, (virtualDelta.get(to) || 0n) + amount);
+      }
+    }
+
+    if (!sawToken) return { fact: null, specialEvents };
+
+    const allWallets = new Set([...tokenDelta.keys(), ...virtualDelta.keys()]);
+    const addressFacts = [];
+    let totalSpent = 0n;
+    let totalReceived = 0n;
+    let totalSoldToken = 0n;
+    let totalSoldVirtual = 0n;
+
+    for (const addr of allWallets) {
+      if (addr === zeroAddress) continue;
+      const td = tokenDelta.get(addr) || 0n;
+      const vd = virtualDelta.get(addr) || 0n;
+
+      if (td > 0n && vd < 0n) {
+        addressFacts.push({
+          wallet_address: addr,
+          role: 'buyer',
+          spent_virtual_amount: (-vd).toString(),
+          received_token_amount: td.toString(),
+          sold_virtual_amount: '0',
+          sold_token_amount: '0',
+        });
+        totalSpent += -vd;
+        totalReceived += td;
+      }
+
+      if (td < 0n && vd > 0n) {
+        addressFacts.push({
+          wallet_address: addr,
+          role: 'seller',
+          spent_virtual_amount: '0',
+          received_token_amount: '0',
+          sold_virtual_amount: vd.toString(),
+          sold_token_amount: (-td).toString(),
+        });
+        totalSoldToken += -td;
+        totalSoldVirtual += vd;
+      }
+    }
+
+    let classification = 'transfer_or_unknown';
+    let kind = 'unknown';
+    if (sawVirtual && totalSpent > 0n && totalReceived > 0n) {
+      classification = 'suspected_buy';
+      kind = 'buy';
+    } else if (sawVirtual && totalSoldToken > 0n && totalSoldVirtual > 0n) {
+      classification = 'suspected_sell';
+      kind = 'sell';
+    } else if (sawToken) {
+      kind = 'transfer';
+    }
+
+    let actorAddress = null;
+    let actorReceivedToken = 0n;
+    for (const [addr, td] of tokenDelta.entries()) {
+      if (addr === zeroAddress) continue;
+      if (td > actorReceivedToken) {
+        actorReceivedToken = td;
+        actorAddress = addr;
+      }
+    }
+
+    const fact = {
+      token_address: token,
+      tx_hash: safeAddress(receipt.transactionHash),
+      block_number: blockNumber,
+      timestamp,
+      actor_address: actorAddress,
+      kind,
+      classification,
+      spent_virtual_amount: totalSpent.toString(),
+      received_token_amount: totalReceived.toString(),
+      received_virtual_amount: totalSoldVirtual.toString(),
+      sold_token_amount: totalSoldToken.toString(),
+      addressFacts,
+    };
+
+    return { fact, specialEvents };
+  }
+
+  computeHoldersAndLeaderboard(tokenDecimals, virtualDecimals, totalSupplyRaw) {
+    const transfers = this.db.getAllTransfers(this.tokenAddress);
+    const facts = this.db.getAllFactAddresses(this.tokenAddress);
+    const map = new Map();
+
+    const getRow = (addr) => {
+      const a = safeAddress(addr);
+      if (!map.has(a)) {
+        map.set(a, {
+          address: a,
+          balance: 0n,
+          cumulativeIn: 0n,
+          cumulativeOut: 0n,
+          txCount: 0,
+          lastActive: 0,
+          spentVirtualSum: 0n,
+          receivedTokenSum: 0n,
+          delta5mToken: 0n,
+        });
+      }
+      return map.get(a);
+    };
+
+    const ts5m = nowSec() - 5 * 60;
+
+    for (const t of transfers) {
+      const amt = BigInt(t.amount || '0');
+      const ts = Number(t.timestamp || 0);
+      const from = getRow(t.from_address);
+      const to = getRow(t.to_address);
+
+      from.balance -= amt;
+      from.cumulativeOut += amt;
+      from.txCount += 1;
+      from.lastActive = Math.max(from.lastActive, ts);
+      if (ts >= ts5m) from.delta5mToken -= amt;
+
+      to.balance += amt;
+      to.cumulativeIn += amt;
+      to.txCount += 1;
+      to.lastActive = Math.max(to.lastActive, ts);
+      if (ts >= ts5m) to.delta5mToken += amt;
+    }
+
+    for (const f of facts) {
+      const row = getRow(f.wallet_address);
+      row.spentVirtualSum += BigInt(f.spent_virtual_amount || '0');
+      row.receivedTokenSum += BigInt(f.received_token_amount || '0');
+      row.lastActive = Math.max(row.lastActive, Number(f.timestamp || 0));
+    }
+
+    const totalSupply = toFloat(totalSupplyRaw || '0', tokenDecimals);
+    const sellTax = Number(this.runtimeConfig.sellTaxPct || 1) / 100;
+    const holders = Array.from(map.values()).filter((r) => r.address && r.address !== zeroAddress);
+    const totalPositiveBalance = holders.reduce((acc, x) => acc + (x.balance > 0n ? x.balance : 0n), 0n);
+
+    const enriched = holders.map((h) => {
+      const balance = toFloat(h.balance, tokenDecimals);
+      const cumIn = toFloat(h.cumulativeIn, tokenDecimals);
+      const cumOut = toFloat(h.cumulativeOut, tokenDecimals);
+      const spentVirtual = toFloat(h.spentVirtualSum, virtualDecimals);
+      const receivedToken = toFloat(h.receivedTokenSum, tokenDecimals);
+      const costPerToken = receivedToken > 0 ? spentVirtual / receivedToken : 0;
+      const breakevenPrice = costPerToken > 0 ? costPerToken / (1 - sellTax) : 0;
+      const breakevenMcap = breakevenPrice > 0 ? breakevenPrice * totalSupply : 0;
+      const sharePct = totalPositiveBalance > 0n && h.balance > 0n
+        ? (Number((h.balance * 1000000n) / totalPositiveBalance) / 10000)
+        : 0;
+
+      return {
+        address: h.address,
+        balance,
+        cumulative_in: cumIn,
+        cumulative_out: cumOut,
+        tx_count: h.txCount,
+        last_active_time: h.lastActive,
+        spent_virtual_sum: spentVirtual,
+        received_token_sum: receivedToken,
+        cost_per_token: costPerToken,
+        breakeven_mcap: breakevenMcap,
+        share_pct: sharePct,
+        delta_5m_token: toFloat(h.delta5mToken, tokenDecimals),
+      };
+    });
+
+    const whales = enriched
+      .slice()
+      .sort((a, b) => (b.balance === a.balance ? b.last_active_time - a.last_active_time : b.balance - a.balance))
+      .slice(0, 100);
+
+    const heat = enriched
+      .slice()
+      .sort((a, b) => b.delta_5m_token - a.delta_5m_token)
+      .slice(0, 100)
+      .map((r) => ({ address: r.address, netflow: r.delta_5m_token, netflow_token: r.delta_5m_token, netflow_virtual: 0, trades_5m: r.tx_count }));
+
+    const active = enriched
+      .slice()
+      .sort((a, b) => (b.tx_count === a.tx_count ? b.last_active_time - a.last_active_time : b.tx_count - a.tx_count))
+      .slice(0, 100)
+      .map((r) => ({
+        address: r.address,
+        trades_5m: r.tx_count,
+        spent_virtual_5m: r.spent_virtual_sum,
+        received_token_5m: r.received_token_sum,
+        last_active_time: r.last_active_time,
+      }));
+
+    return { holders: enriched, leaderboard: { whales, heat, active, source: 'holders' } };
+  }
+
+  computeSpecialStats(tokenDecimals, virtualDecimals) {
+    const now = nowSec();
+    const rows = this.db.getSpecialFlowsSince(this.tokenAddress, now - 3600);
+    const map = new Map();
+
+    const getRow = (flow) => {
+      if (!map.has(flow.special_address)) {
+        map.set(flow.special_address, {
+          address: flow.special_address,
+          label: flow.label,
+          category: flow.category,
+          net_virtual_5m: 0,
+          net_virtual_1h: 0,
+          net_virtual_cum: 0,
+          net_token_5m: 0,
+          net_token_cum: 0,
+          last_active_time: 0,
+        });
+      }
+      return map.get(flow.special_address);
+    };
+
+    for (const r of rows) {
+      const row = getRow(r);
+      const sign = r.direction === 'in' ? 1 : -1;
+      const ts = Number(r.timestamp || 0);
+      const is5m = ts >= now - 300;
+      const amount = r.asset === 'VIRTUAL' ? toFloat(r.amount, virtualDecimals) : toFloat(r.amount, tokenDecimals);
+
+      if (r.asset === 'VIRTUAL') {
+        row.net_virtual_1h += sign * amount;
+        row.net_virtual_cum += sign * amount;
+        if (is5m) row.net_virtual_5m += sign * amount;
+      }
+      if (r.asset === 'TOKEN') {
+        row.net_token_cum += sign * amount;
+        if (is5m) row.net_token_5m += sign * amount;
+      }
+
+      row.last_active_time = Math.max(row.last_active_time, ts);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.net_virtual_5m - a.net_virtual_5m);
+  }
+
+  computeMyWalletStats(tokenMeta, virtualMeta) {
+    const wallets = Array.from(this.myWalletSet);
+    const tokenDecimals = tokenMeta.decimals;
+    const virtualDecimals = virtualMeta.decimals;
+    const sellTax = Number(this.runtimeConfig.sellTaxPct || 1) / 100;
+    const totalSupply = toFloat(tokenMeta.totalSupply || '0', tokenDecimals);
+    const rows = this.db.getMyWalletStats(this.tokenAddress, wallets);
+
+    const mapped = rows.map((r) => {
+      const spentVirtual = toFloat(r.spent_virtual_sum || '0', virtualDecimals);
+      const receivedToken = toFloat(r.received_token_sum || '0', tokenDecimals);
+      const soldToken = toFloat(r.sold_token_sum || '0', tokenDecimals);
+      const receivedVirtual = toFloat(r.received_virtual_sum || '0', virtualDecimals);
+      const transferIn = toFloat(r.transfer_in_sum || '0', tokenDecimals);
+      const transferOut = toFloat(r.transfer_out_sum || '0', tokenDecimals);
+      const balance = toFloat((BigInt(r.total_in_sum || '0') - BigInt(r.total_out_sum || '0')).toString(), tokenDecimals);
+      const costPerToken = receivedToken > 0 ? spentVirtual / receivedToken : 0;
+      const effectiveCostPerToken = costPerToken > 0 ? costPerToken / (1 - sellTax) : 0;
+      const breakevenMcap = effectiveCostPerToken > 0 ? effectiveCostPerToken * totalSupply : 0;
+      return {
+        address: r.wallet_address,
+        balance,
+        spent_virtual_sum: spentVirtual,
+        received_token_sum: receivedToken,
+        sold_token_sum: soldToken,
+        received_virtual_sum: receivedVirtual,
+        transfer_in_sum: transferIn,
+        transfer_out_sum: transferOut,
+        cost_per_token: costPerToken,
+        effective_cost_per_token: effectiveCostPerToken,
+        breakeven_mcap: breakevenMcap,
+        tx_count: Number(r.tx_count || 0),
+        last_active_time: Number(r.last_active_time || 0),
+        raw: {
+          spent_virtual_sum: String(r.spent_virtual_sum || '0'),
+          received_token_sum: String(r.received_token_sum || '0'),
+          sold_token_sum: String(r.sold_token_sum || '0'),
+          received_virtual_sum: String(r.received_virtual_sum || '0'),
+          transfer_in_sum: String(r.transfer_in_sum || '0'),
+          transfer_out_sum: String(r.transfer_out_sum || '0'),
+          total_in_sum: String(r.total_in_sum || '0'),
+          total_out_sum: String(r.total_out_sum || '0'),
+        },
+      };
+    });
+
+    const sum = {
+      spent_virtual_sum: 0n,
+      received_token_sum: 0n,
+      sold_token_sum: 0n,
+      received_virtual_sum: 0n,
+      transfer_in_sum: 0n,
+      transfer_out_sum: 0n,
+      total_in_sum: 0n,
+      total_out_sum: 0n,
+    };
+    for (const r of rows) {
+      sum.spent_virtual_sum += BigInt(r.spent_virtual_sum || '0');
+      sum.received_token_sum += BigInt(r.received_token_sum || '0');
+      sum.sold_token_sum += BigInt(r.sold_token_sum || '0');
+      sum.received_virtual_sum += BigInt(r.received_virtual_sum || '0');
+      sum.transfer_in_sum += BigInt(r.transfer_in_sum || '0');
+      sum.transfer_out_sum += BigInt(r.transfer_out_sum || '0');
+      sum.total_in_sum += BigInt(r.total_in_sum || '0');
+      sum.total_out_sum += BigInt(r.total_out_sum || '0');
+    }
+
+    const spentVirtualTotal = toFloat(sum.spent_virtual_sum, virtualDecimals);
+    const receivedTokenTotal = toFloat(sum.received_token_sum, tokenDecimals);
+    const soldTokenTotal = toFloat(sum.sold_token_sum, tokenDecimals);
+    const receivedVirtualTotal = toFloat(sum.received_virtual_sum, virtualDecimals);
+    const transferInTotal = toFloat(sum.transfer_in_sum, tokenDecimals);
+    const transferOutTotal = toFloat(sum.transfer_out_sum, tokenDecimals);
+    const balanceTotal = toFloat((sum.total_in_sum - sum.total_out_sum).toString(), tokenDecimals);
+    const costPerTokenTotal = receivedTokenTotal > 0 ? spentVirtualTotal / receivedTokenTotal : 0;
+    const effectiveCostTotal = costPerTokenTotal > 0 ? costPerTokenTotal / (1 - sellTax) : 0;
+    const breakevenMcapTotal = effectiveCostTotal > 0 ? effectiveCostTotal * totalSupply : 0;
+
+    return {
+      addresses: wallets,
+      rows: mapped,
+      status: {
+        state: this.walletBackfillStatus,
+        last_at: this.walletBackfillLastAt,
+        last_reason: this.walletBackfillLastReason,
+        last_error: this.walletBackfillLastError || null,
+        queued: this.walletBackfillQueued,
+        running: this.walletBackfillRunning,
+      },
+      total: {
+        balance: balanceTotal,
+        spent_virtual_sum: spentVirtualTotal,
+        received_token_sum: receivedTokenTotal,
+        sold_token_sum: soldTokenTotal,
+        received_virtual_sum: receivedVirtualTotal,
+        transfer_in_sum: transferInTotal,
+        transfer_out_sum: transferOutTotal,
+        cost_per_token: costPerTokenTotal,
+        effective_cost_per_token: effectiveCostTotal,
+        breakeven_mcap: breakevenMcapTotal,
+        raw: Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, v.toString()])),
+      },
+    };
+  }
+
+  buildCurves(tokenMeta, myWalletSummary) {
+    const tokenDecimals = tokenMeta.decimals;
+    const virtualMeta = this.tokenMetaCache.get(safeAddress(config.virtualTokenAddress)) || { decimals: 18 };
+    const virtualDecimals = virtualMeta.decimals;
+    const totalSupply = toFloat(tokenMeta.totalSupply || '0', tokenDecimals);
+
+    const nowMinute = minuteFloor(nowSec());
+    const windowMinutes = Math.max(10, Number(this.runtimeConfig.curveWindowMinutes || 30));
+    const start = nowMinute - (windowMinutes - 1) * 60;
+
+    const buyFacts = this.db.getRecentBuyFacts(this.tokenAddress, start);
+    const perMinute = new Map();
+    for (const f of buyFacts) {
+      const m = minuteFloor(Number(f.timestamp || 0));
+      const cur = perMinute.get(m) || { spent: 0n, recv: 0n };
+      cur.spent += BigInt(f.spent_virtual_amount || '0');
+      cur.recv += BigInt(f.received_token_amount || '0');
+      perMinute.set(m, cur);
+    }
+
+    let lastMcap = 0;
+    const emvSeries = [];
+    const rmvSeries = [];
+
+    const rmv = myWalletSummary?.total?.breakeven_mcap || 0;
+
+    for (let m = start; m <= nowMinute; m += 60) {
+      const item = perMinute.get(m);
+      if (item && item.recv > 0n) {
+        const price = toFloat(item.spent, virtualDecimals) / toFloat(item.recv, tokenDecimals);
+        if (Number.isFinite(price) && price > 0) {
+          lastMcap = price * totalSupply;
+        }
+      }
+
+      const taxPct = calcBuyTaxPct(m, Number(this.runtimeConfig.launchStartTime || 0));
+      const emv = lastMcap > 0 ? lastMcap / (1 - taxPct / 100) : 0;
+      emvSeries.push({ minute_ts: m, value: emv, tax_pct: taxPct, mcap: lastMcap });
+      rmvSeries.push({ minute_ts: m, value: rmv });
+    }
+
+    return { emvSeries, rmvSeries };
+  }
+
+  buildSnapshot() {
+    const nowMinuteTs = minuteFloor(nowSec());
+    const tokenMeta = this.tokenMetaCache.get(this.tokenAddress) || { decimals: 18, totalSupply: '0' };
+    const virtualMeta = this.tokenMetaCache.get(safeAddress(config.virtualTokenAddress)) || { decimals: 18, totalSupply: '0' };
+    const tokenDecimals = tokenMeta.decimals;
+    const virtualDecimals = virtualMeta.decimals;
+
+    const bucketRows = this.db.getRecentBuckets(this.tokenAddress, nowMinuteTs - 59 * 60);
+    const minuteMap = new Map();
+    for (const b of bucketRows) {
+      const minute = Number(b.minute_ts);
+      const raw = this.currentMetricMode === 'virtual_spent' ? BigInt(b.virtual_spent_sum || '0') : BigInt(b.token_received_sum || '0');
+      const dec = this.currentMetricMode === 'virtual_spent' ? virtualDecimals : tokenDecimals;
+      minuteMap.set(minute, Number(formatUnits(raw, dec)));
+    }
+
+    const m0 = nowMinuteTs;
+    const m1 = nowMinuteTs - 60;
+    const m2 = nowMinuteTs - 120;
+    const m3 = nowMinuteTs - 180;
+    const m4 = nowMinuteTs - 240;
+
+    const near1 = Number(minuteMap.get(m0) || 0);
+    const near2Seq = [
+      { minute_ts: m2, value: Number(minuteMap.get(m2) || 0) },
+      { minute_ts: m1, value: Number(minuteMap.get(m1) || 0) },
+    ];
+    const near5 = [m0, m1, m2, m3, m4].reduce((a, x) => a + Number(minuteMap.get(x) || 0), 0);
+
+    const holdersResult = this.computeHoldersAndLeaderboard(tokenDecimals, virtualDecimals, tokenMeta.totalSupply);
+    const myWalletSummary = this.computeMyWalletStats(tokenMeta, virtualMeta);
+    const walletHolder = holdersResult.holders.find((h) => safeAddress(h.address) === safeAddress(this.runtimeConfig.walletAddress));
+
+    const ruleResult = this.ruleEngine.evaluate({
+      tokenAddress: this.tokenAddress,
+      metricMode: this.currentMetricMode,
+      nowMinuteTs,
+      minuteValueMap: minuteMap,
+      lastSignal: this.db.getLastSignal(this.tokenAddress),
+      leaderboard: holdersResult.leaderboard,
+    });
+
+    if (ruleResult.triggered) this.db.insertSignal(ruleResult.signal);
+    const lastSignal = this.db.getLastSignal(this.tokenAddress);
+
+    const minuteSeries = [];
+    for (let i = 29; i >= 0; i -= 1) {
+      const minute = nowMinuteTs - i * 60;
+      minuteSeries.push({ minute_ts: minute, value: Number(minuteMap.get(minute) || 0) });
+    }
+
+    const curves = this.buildCurves(tokenMeta, myWalletSummary);
+    const specialStats = this.computeSpecialStats(tokenDecimals, virtualDecimals);
+
+    const taxNowSec = this.lastChainTimeSec > 0 ? this.lastChainTimeSec : nowSec();
+    return {
+      token: this.tokenAddress,
+      running: this.running,
+      backfill_done: this.backfillDone,
+      last_processed_block: Number(this.db.getMeta(this.tokenAddress)?.last_processed_block || 0),
+      metric_mode: this.currentMetricMode,
+      windows: {
+        near_1m: near1,
+        near_2m_sequence: near2Seq,
+        near_5m: near5,
+      },
+      signal_state: {
+        passed_now: ruleResult.triggered,
+        reason: ruleResult.reason || 'triggered',
+        pair: ruleResult.pair,
+        cooldown_until: Number(ruleResult.cooldownUntil || lastSignal?.cooldown_until || 0),
+        cooling_down: Number(ruleResult.cooldownUntil || lastSignal?.cooldown_until || 0) > nowSec(),
+      },
+      tax: {
+        launch_start_time: Number(this.runtimeConfig.launchStartTime || 0),
+        buy_tax_pct: calcBuyTaxPct(taxNowSec, Number(this.runtimeConfig.launchStartTime || 0)),
+        sell_tax_pct: Number(this.runtimeConfig.sellTaxPct || 1),
+        reference_time: taxNowSec,
+      },
+      minute_series: minuteSeries,
+      curves,
+      holder_stats: holdersResult.holders,
+      leaderboard: holdersResult.leaderboard,
+      my_wallet: {
+        address: this.runtimeConfig.walletAddress || null,
+        breakeven_mcap: walletHolder?.breakeven_mcap || 0,
+        cost_per_token: walletHolder?.cost_per_token || 0,
+      },
+      my_wallets: myWalletSummary,
+      special_stats: specialStats,
+      ingest: {
+        ...this.lastIngest,
+        counterparty_configured: this.counterpartyList.length > 0,
+        counterparty_count: this.counterpartyList.length,
+      },
+      decimals: {
+        token: tokenDecimals,
+        virtual: virtualDecimals,
+      },
+      token_meta: {
+        total_supply: tokenMeta.totalSupply,
+      },
+    };
+  }
+
+  emitUpdate(force, eventType) {
+    const now = Date.now();
+    if (!force && now - this.lastEmitAt < config.updateThrottleMs) return;
+    this.lastEmitAt = now;
+    this.onUpdate?.({ type: eventType, ts: now, snapshot: this.buildSnapshot() });
+  }
+}
+

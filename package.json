@@ -4,10 +4,10 @@
   "private": true,
   "description": "On-chain realtime decision assistant for Virtuals sniping on Base",
   "type": "module",
-  "main": "src/server.js",
+  "main": "backend/src/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "replay": "node scripts/replay-range.js"
+    "start": "node backend/src/server.js",
+    "replay": "node backend/scripts/replay-range.js"
   },
   "engines": {
     "node": ">=20.0.0"
