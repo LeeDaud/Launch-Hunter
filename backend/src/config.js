@@ -50,6 +50,11 @@ export const config = {
   counterpartyTokens: envAddressList('COUNTERPARTY_TOKEN_ADDRESSES'),
 
   backfillBlocks: envNumber('BACKFILL_BLOCKS', 8000),
+  tokenStartBlock: envNumber('TOKEN_START_BLOCK', 0),
+  autoDiscoverTokenStart: envBool('AUTO_DISCOVER_TOKEN_START', true),
+  tokenStartProbeCoarseSpan: envNumber('TOKEN_START_PROBE_COARSE_SPAN', 200000),
+  tokenStartProbeFineSpan: envNumber('TOKEN_START_PROBE_FINE_SPAN', 10000),
+  tokenStartProbeMicroSpan: envNumber('TOKEN_START_PROBE_MICRO_SPAN', 500),
   logChunkSize: envNumber('LOG_CHUNK_SIZE', 1200),
   replayRecentBlocks: envNumber('REPLAY_RECENT_BLOCKS', 24),
   pollingIntervalMs: envNumber('POLLING_INTERVAL_MS', 2500),

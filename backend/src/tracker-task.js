@@ -72,14 +72,26 @@ export class TokenTrackerTask {
     const latest = Number(await this.rpc.getBlockNumber());
     this.lastKnownHead = latest;
     const state = this.db.getMeta(this.tokenAddress);
+    const configuredStart = Math.max(0, Number(this.runtimeConfig.tokenStartBlock || config.tokenStartBlock || 0));
+    let discoveredStart = 0;
+    if (!state?.last_processed_block && configuredStart <= 0 && config.autoDiscoverTokenStart) {
+      discoveredStart = await this.discoverTokenStartBlock(latest);
+      if (discoveredStart > 0) this.runtimeConfig.tokenStartBlock = discoveredStart;
+    }
     const startFrom = state?.last_processed_block
       ? Number(state.last_processed_block) + 1
-      : Math.max(0, latest - config.backfillBlocks);
+      : configuredStart > 0
+        ? configuredStart
+        : discoveredStart > 0
+          ? discoveredStart
+        : Math.max(0, latest - config.backfillBlocks);
 
     logger.info('task start', {
       token: this.tokenAddress,
       startFrom,
       latest,
+      configuredStart,
+      discoveredStart,
       counterpartyCount: this.counterpartyList.length,
       specialCount: this.specialAddresses.length,
     });
@@ -123,6 +135,80 @@ export class TokenTrackerTask {
     this.running = false;
     this.db.setMeta(this.tokenAddress, { running: 0 });
     this.emitUpdate(true, 'stopped');
+  }
+
+  async hasTransferInRange(fromBlock, toBlock) {
+    if (toBlock < fromBlock) return false;
+    const logs = await this.rpc.getLogs({
+      address: this.tokenAddress,
+      event: TRANSFER_EVENT,
+      fromBlock: BigInt(fromBlock),
+      toBlock: BigInt(toBlock),
+    });
+    return logs.length > 0;
+  }
+
+  async discoverTokenStartBlock(latestBlock) {
+    const latest = Math.max(0, Number(latestBlock || 0));
+    if (latest <= 0) return 0;
+
+    const coarseSpan = Math.max(10000, Number(config.tokenStartProbeCoarseSpan || 200000));
+    const fineSpan = Math.max(1000, Number(config.tokenStartProbeFineSpan || 10000));
+    const microSpan = Math.max(100, Number(config.tokenStartProbeMicroSpan || 500));
+
+    let coarseStart = -1;
+    let coarseEnd = -1;
+    for (let s = 0; s <= latest; s += coarseSpan) {
+      const e = Math.min(latest, s + coarseSpan - 1);
+      if (await this.hasTransferInRange(s, e)) {
+        coarseStart = s;
+        coarseEnd = e;
+        break;
+      }
+    }
+    if (coarseStart < 0) return 0;
+
+    let fineStart = coarseStart;
+    let fineEnd = coarseEnd;
+    for (let s = coarseStart; s <= coarseEnd; s += fineSpan) {
+      const e = Math.min(coarseEnd, s + fineSpan - 1);
+      if (await this.hasTransferInRange(s, e)) {
+        fineStart = s;
+        fineEnd = e;
+        break;
+      }
+    }
+
+    let microStart = fineStart;
+    let microEnd = fineEnd;
+    for (let s = fineStart; s <= fineEnd; s += microSpan) {
+      const e = Math.min(fineEnd, s + microSpan - 1);
+      if (await this.hasTransferInRange(s, e)) {
+        microStart = s;
+        microEnd = e;
+        break;
+      }
+    }
+
+    const logs = await this.rpc.getLogs({
+      address: this.tokenAddress,
+      event: TRANSFER_EVENT,
+      fromBlock: BigInt(microStart),
+      toBlock: BigInt(microEnd),
+    });
+    if (!logs.length) return microStart;
+    let first = Number(logs[0].blockNumber);
+    for (const log of logs) first = Math.min(first, Number(log.blockNumber));
+
+    logger.info('token start block discovered', {
+      token: this.tokenAddress,
+      firstTransferBlock: first,
+      latest,
+      coarseSpan,
+      fineSpan,
+      microSpan,
+    });
+    return first;
   }
 
   async stop() {

@@ -116,8 +116,9 @@ export function createApi({ tracker, db }) {
       const sellTaxPct = req.body?.sell_tax_pct;
       const myWallets = req.body?.myWallets;
       const myWalletFromBlock = req.body?.my_wallet_from_block;
-      if (launchStartTime != null || walletAddress != null || sellTaxPct != null || myWallets != null || myWalletFromBlock != null) {
-        tracker.updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, myWallets, myWalletFromBlock });
+      const tokenStartBlock = req.body?.token_start_block;
+      if (launchStartTime != null || walletAddress != null || sellTaxPct != null || myWallets != null || myWalletFromBlock != null || tokenStartBlock != null) {
+        tracker.updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, myWallets, myWalletFromBlock, tokenStartBlock });
       }
 
       const status = await tracker.start(token);
@@ -148,6 +149,7 @@ export function createApi({ tracker, db }) {
       sellTaxPct: req.body?.sell_tax_pct,
       myWallets: req.body?.myWallets,
       myWalletFromBlock: req.body?.my_wallet_from_block,
+      tokenStartBlock: req.body?.token_start_block,
       curveWindowMinutes: req.body?.curve_window_minutes,
     });
     res.json({ ok: true, runtime, snapshot: tracker.getSnapshot() });
