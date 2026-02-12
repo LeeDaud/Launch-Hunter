@@ -518,7 +518,10 @@
       <div class="card" style="margin-top:10px;">
         <div class="row" style="justify-content:space-between; margin-bottom:8px;">
           <div style="font-size:13px;color:#c3e5ff;">Realtime Price & Recent Trades</div>
-          <div id="spotMetaText" class="mono" style="font-size:12px;color:#9fc2df;">-</div>
+          <div class="row">
+            <button id="strictChainModeBtn" class="btn btn-light" type="button">Strict Chain: ON</button>
+            <div id="spotMetaText" class="mono" style="font-size:12px;color:#9fc2df;">-</div>
+          </div>
         </div>
         <div class="status" style="margin-top:0;">
           <div id="spotPricePill" class="pill mono">Spot Price: -</div>
@@ -534,6 +537,7 @@
                 <th>From</th>
                 <th>To</th>
                 <th>Amount T</th>
+                <th>Amount Raw</th>
                 <th>Price</th>
                 <th>Hash</th>
               </tr>
@@ -715,6 +719,7 @@
       const kpiCd = $('kpiCd');
       const kpiRmv = $('kpiRmv');
       const kpiCost = $('kpiCost');
+      const strictChainModeBtn = $('strictChainModeBtn');
       const spotPricePill = $('spotPricePill');
       const spotMcapPill = $('spotMcapPill');
       const spotMetaText = $('spotMetaText');
@@ -755,6 +760,7 @@
       const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
       const LS_LANG_KEY = 'uiLang';
       const LS_EXPLORER_OPTS_KEY = 'explorerTokentxOptions';
+      const LS_STRICT_CHAIN_MODE_KEY = 'strictChainMode';
       let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
       const API_BASE = String(window.__API_BASE__ || '').trim().replace(/\/+$/, '');
       const apiUrl = (pathname) => {
@@ -770,6 +776,7 @@
       let myWallets = [];
       let walletLabels = {};
       let launchStartSec = 0;
+      let strictChainMode = String(localStorage.getItem(LS_STRICT_CHAIN_MODE_KEY) ?? '1') !== '0';
       const EXPLORER_DEFAULTS = {
         chainid: '8453',
         startblock: '0',
@@ -1552,22 +1559,31 @@
       }
 
       function renderRealtimePriceAndTrades(snapshot) {
+        if (strictChainModeBtn) {
+          strictChainModeBtn.textContent = `Strict Chain: ${strictChainMode ? 'ON' : 'OFF'}`;
+          strictChainModeBtn.classList.toggle('active', strictChainMode);
+        }
         const p = snapshot?.price || {};
         const spotPrice = Number(p.spot_price || 0);
         const spotMcap = Number(p.spot_mcap || 0);
         spotPricePill.textContent = `Spot Price: ${fmt(spotPrice)}`;
         spotMcapPill.textContent = `Spot MCAP: ${fmt(spotMcap)}`;
-        spotMetaText.textContent = `window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+        spotMetaText.textContent = strictChainMode
+          ? `strict=true | rows=${Number((snapshot?.recent_transfers_raw || []).length || 0)}`
+          : `window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
 
-        const rows = (snapshot?.recent_trades || []).slice(0, 80);
+        const rows = strictChainMode
+          ? (snapshot?.recent_transfers_raw || []).slice(0, 80)
+          : (snapshot?.recent_trades || []).slice(0, 80);
         const filtered = rows.filter((r) => {
+          if (strictChainMode) return true;
           const side = String(r.side || 'transfer');
           return side === 'buy' || side === 'sell' || side === 'transfer';
         });
         recentTradeBody.innerHTML = filtered.map((r) => {
           const ts = Number(r.timestamp || 0);
           const tm = ts > 0 ? new Date(ts * 1000).toLocaleTimeString() : '-';
-          const side = String(r.side || 'transfer');
+          const side = strictChainMode ? 'transfer' : String(r.side || 'transfer');
           const sideClass = side === 'buy' ? 'good' : side === 'sell' ? 'bad' : '';
           const block = Number(r.block_number || 0);
           const logIndex = Number(r.log_index || 0);
@@ -1579,7 +1595,8 @@
               <td class="mono" title="${r.from_address || ''}">${shortAddr(r.from_address || '')}</td>
               <td class="mono" title="${r.to_address || ''}">${shortAddr(r.to_address || '')}</td>
               <td>${fmt(r.amount_token || 0)}</td>
-              <td>${fmt(r.price || 0)}</td>
+              <td class="mono">${String(r.amount_raw || '-')}</td>
+              <td>${strictChainMode ? '-' : fmt(r.price || 0)}</td>
               <td class="mono" title="${r.tx_hash || ''}">${shortAddr(r.tx_hash || '')}</td>
             </tr>
           `;
@@ -1830,6 +1847,12 @@
         saveExplorerOptions(readExplorerOptions());
         renderExplorerRows([]);
         setExplorerStatus('reset done');
+      });
+
+      strictChainModeBtn?.addEventListener('click', () => {
+        strictChainMode = !strictChainMode;
+        localStorage.setItem(LS_STRICT_CHAIN_MODE_KEY, strictChainMode ? '1' : '0');
+        if (latest) renderRealtimePriceAndTrades(latest);
       });
 
       [walletInput, sellTaxInput].forEach((el) => {
