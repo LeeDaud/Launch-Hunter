@@ -1048,7 +1048,7 @@
       }
 
       function formatLocalDisplayFromSeconds(sec) {
-        if (!Number.isFinite(sec) || sec <= 0) return '-';
+        if (!Number.isFinite(sec) || sec <= 0) return 'Auto';
         const d = new Date(sec * 1000);
         const y = d.getFullYear();
         const mo = String(d.getMonth() + 1).padStart(2, '0');
@@ -1068,7 +1068,12 @@
       }
 
       function setLaunchInputBySeconds(sec) {
-        if (!Number.isFinite(sec) || sec <= 0) return;
+        if (!Number.isFinite(sec) || sec <= 0) {
+          launchStartSec = 0;
+          launchInput.value = '';
+          launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(0);
+          return;
+        }
         launchStartSec = Math.floor(sec);
         launchInput.value = toLocalDatetimeValue(new Date(launchStartSec * 1000));
         launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(sec);
@@ -1111,9 +1116,8 @@
         if (saved > 0) {
           setLaunchInputBySeconds(saved);
         } else {
-          const nowSec = Math.floor(Date.now() / 1000);
-          setLaunchInputBySeconds(nowSec);
-          localStorage.setItem(LAUNCH_START_KEY, String(nowSec));
+          setLaunchInputBySeconds(0);
+          localStorage.setItem(LAUNCH_START_KEY, '0');
         }
       }
 

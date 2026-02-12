@@ -52,6 +52,7 @@ export const config = {
   backfillBlocks: envNumber('BACKFILL_BLOCKS', 8000),
   tokenStartBlock: envNumber('TOKEN_START_BLOCK', 0),
   autoDiscoverTokenStart: envBool('AUTO_DISCOVER_TOKEN_START', true),
+  autoDiscoverLaunchStartTime: envBool('AUTO_DISCOVER_LAUNCH_START_TIME', true),
   tokenStartProbeCoarseSpan: envNumber('TOKEN_START_PROBE_COARSE_SPAN', 200000),
   tokenStartProbeFineSpan: envNumber('TOKEN_START_PROBE_FINE_SPAN', 10000),
   tokenStartProbeMicroSpan: envNumber('TOKEN_START_PROBE_MICRO_SPAN', 500),

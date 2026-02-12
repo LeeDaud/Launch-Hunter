@@ -78,6 +78,24 @@ export class TokenTrackerTask {
       discoveredStart = await this.discoverTokenStartBlock(latest);
       if (discoveredStart > 0) this.runtimeConfig.tokenStartBlock = discoveredStart;
     }
+    if (!state?.last_processed_block && Number(this.runtimeConfig.launchStartTime || 0) <= 0 && config.autoDiscoverLaunchStartTime) {
+      const candidateBlock = discoveredStart > 0 ? discoveredStart : configuredStart;
+      if (candidateBlock > 0) {
+        try {
+          const launchTs = await this.getBlockTimestamp(candidateBlock);
+          if (Number.isFinite(Number(launchTs)) && Number(launchTs) > 0) {
+            this.runtimeConfig.launchStartTime = Number(launchTs);
+            logger.info('launch start time auto-discovered', {
+              token: this.tokenAddress,
+              block: candidateBlock,
+              launchStartTime: this.runtimeConfig.launchStartTime,
+            });
+          }
+        } catch (err) {
+          logger.warn('launch start auto-discovery failed', { error: String(err?.message || err) });
+        }
+      }
+    }
     const startFrom = state?.last_processed_block
       ? Number(state.last_processed_block) + 1
       : configuredStart > 0
@@ -997,21 +1015,32 @@ export class TokenTrackerTask {
     const windowBuys = buys.filter((f) => Number(f.timestamp || 0) >= now - windowSec);
     const calcOn = windowBuys.length ? windowBuys : buys.slice(0, 30);
 
-    let sumSpent = 0n;
-    let sumReceived = 0n;
+    let sumSpentFloat = 0;
+    let sumGrossTokenFloat = 0;
     for (const f of calcOn) {
-      sumSpent += BigInt(f.spent_virtual_amount || '0');
-      sumReceived += BigInt(f.received_token_amount || '0');
+      const spentFloat = toFloat(f.spent_virtual_amount || '0', virtualDecimals);
+      const receivedFloat = toFloat(f.received_token_amount || '0', tokenDecimals);
+      if (!Number.isFinite(spentFloat) || !Number.isFinite(receivedFloat) || spentFloat <= 0 || receivedFloat <= 0) continue;
+      const taxPct = calcBuyTaxPct(Number(f.timestamp || now), Number(this.runtimeConfig.launchStartTime || 0));
+      const grossToken = receivedFloat / Math.max(1e-9, 1 - taxPct / 100);
+      if (!Number.isFinite(grossToken) || grossToken <= 0) continue;
+      sumSpentFloat += spentFloat;
+      sumGrossTokenFloat += grossToken;
     }
 
-    const weightedSpotPrice = sumReceived > 0n
-      ? (toFloat(sumSpent, virtualDecimals) / toFloat(sumReceived, tokenDecimals))
+    const weightedSpotPrice = sumGrossTokenFloat > 0
+      ? (sumSpentFloat / sumGrossTokenFloat)
       : 0;
 
     const latestBuy = buys[0] || null;
     const latestSpotPrice = latestBuy
-      ? (toFloat(latestBuy.spent_virtual_amount || '0', virtualDecimals)
-        / Math.max(1e-12, toFloat(latestBuy.received_token_amount || '0', tokenDecimals)))
+      ? (() => {
+        const spentFloat = toFloat(latestBuy.spent_virtual_amount || '0', virtualDecimals);
+        const receivedFloat = toFloat(latestBuy.received_token_amount || '0', tokenDecimals);
+        const taxPct = calcBuyTaxPct(Number(latestBuy.timestamp || now), Number(this.runtimeConfig.launchStartTime || 0));
+        const grossToken = receivedFloat / Math.max(1e-9, 1 - taxPct / 100);
+        return spentFloat > 0 && grossToken > 0 ? spentFloat / grossToken : 0;
+      })()
       : 0;
 
     const spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
@@ -1044,8 +1073,12 @@ export class TokenTrackerTask {
         : classification === 'suspected_sell'
           ? 'sell'
           : 'transfer';
+      const buyTaxPct = calcBuyTaxPct(Number(t.timestamp || now), Number(this.runtimeConfig.launchStartTime || 0));
       const price = side === 'buy'
-        ? (receivedToken > 0 ? spentVirtual / receivedToken : 0)
+        ? (() => {
+          const grossToken = receivedToken > 0 ? (receivedToken / Math.max(1e-9, 1 - buyTaxPct / 100)) : 0;
+          return grossToken > 0 ? (spentVirtual / grossToken) : 0;
+        })()
         : side === 'sell'
           ? (soldToken > 0 ? receivedVirtual / soldToken : 0)
           : 0;
@@ -1060,6 +1093,7 @@ export class TokenTrackerTask {
         to_address: String(t.to_address || ''),
         amount_token: toFloat(t.amount || '0', tokenDecimals),
         actor_address: String(fact?.actor_address || ''),
+        buy_tax_pct: buyTaxPct,
         spent_virtual: spentVirtual,
         received_token: receivedToken,
         received_virtual: receivedVirtual,
