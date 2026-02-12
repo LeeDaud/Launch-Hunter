@@ -893,6 +893,86 @@ export class TokenTrackerTask {
     return { emvSeries, rmvSeries };
   }
 
+  computeSpotAndRecentTrades(tokenMeta, virtualMeta) {
+    const tokenDecimals = Number(tokenMeta?.decimals || 18);
+    const virtualDecimals = Number(virtualMeta?.decimals || 18);
+    const totalSupply = toFloat(tokenMeta?.totalSupply || '0', tokenDecimals);
+    const recentFacts = this.db.getRecentFacts(this.tokenAddress, 200);
+
+    const buys = recentFacts.filter((f) => {
+      if (String(f.classification || '') !== 'suspected_buy') return false;
+      const recv = BigInt(f.received_token_amount || '0');
+      const spent = BigInt(f.spent_virtual_amount || '0');
+      return recv > 0n && spent > 0n;
+    });
+
+    const now = nowSec();
+    const windowSec = 300;
+    const windowBuys = buys.filter((f) => Number(f.timestamp || 0) >= now - windowSec);
+    const calcOn = windowBuys.length ? windowBuys : buys.slice(0, 30);
+
+    let sumSpent = 0n;
+    let sumReceived = 0n;
+    for (const f of calcOn) {
+      sumSpent += BigInt(f.spent_virtual_amount || '0');
+      sumReceived += BigInt(f.received_token_amount || '0');
+    }
+
+    const weightedSpotPrice = sumReceived > 0n
+      ? (toFloat(sumSpent, virtualDecimals) / toFloat(sumReceived, tokenDecimals))
+      : 0;
+
+    const latestBuy = buys[0] || null;
+    const latestSpotPrice = latestBuy
+      ? (toFloat(latestBuy.spent_virtual_amount || '0', virtualDecimals)
+        / Math.max(1e-12, toFloat(latestBuy.received_token_amount || '0', tokenDecimals)))
+      : 0;
+
+    const spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
+    const spotMcap = spotPrice > 0 ? spotPrice * totalSupply : 0;
+
+    const recentTrades = recentFacts.slice(0, 40).map((f) => {
+      const classification = String(f.classification || 'transfer_or_unknown');
+      const spentVirtual = toFloat(f.spent_virtual_amount || '0', virtualDecimals);
+      const receivedToken = toFloat(f.received_token_amount || '0', tokenDecimals);
+      const receivedVirtual = toFloat(f.received_virtual_amount || '0', virtualDecimals);
+      const soldToken = toFloat(f.sold_token_amount || '0', tokenDecimals);
+      const side = classification === 'suspected_buy'
+        ? 'buy'
+        : classification === 'suspected_sell'
+          ? 'sell'
+          : 'other';
+      const price = side === 'buy'
+        ? (receivedToken > 0 ? spentVirtual / receivedToken : 0)
+        : side === 'sell'
+          ? (soldToken > 0 ? receivedVirtual / soldToken : 0)
+          : 0;
+      return {
+        tx_hash: String(f.tx_hash || ''),
+        block_number: Number(f.block_number || 0),
+        timestamp: Number(f.timestamp || 0),
+        classification,
+        side,
+        actor_address: String(f.actor_address || ''),
+        spent_virtual: spentVirtual,
+        received_token: receivedToken,
+        received_virtual: receivedVirtual,
+        sold_token: soldToken,
+        price,
+      };
+    });
+
+    return {
+      spot_price: spotPrice,
+      spot_mcap: spotMcap,
+      last_buy_price: latestSpotPrice,
+      weighted_window_price: weightedSpotPrice,
+      source_trade_count: calcOn.length,
+      window_sec: windowSec,
+      recent_trades: recentTrades,
+    };
+  }
+
   buildSnapshot() {
     const nowMinuteTs = minuteFloor(nowSec());
     const tokenMeta = this.tokenMetaCache.get(this.tokenAddress) || { decimals: 18, totalSupply: '0' };
@@ -945,6 +1025,7 @@ export class TokenTrackerTask {
     }
 
     const curves = this.buildCurves(tokenMeta, myWalletSummary);
+    const priceView = this.computeSpotAndRecentTrades(tokenMeta, virtualMeta);
     const specialStats = this.computeSpecialStats(tokenDecimals, virtualDecimals);
 
     const taxNowSec = this.lastChainTimeSec > 0 ? this.lastChainTimeSec : nowSec();
@@ -974,6 +1055,15 @@ export class TokenTrackerTask {
       },
       minute_series: minuteSeries,
       curves,
+      price: {
+        spot_price: priceView.spot_price,
+        spot_mcap: priceView.spot_mcap,
+        last_buy_price: priceView.last_buy_price,
+        weighted_window_price: priceView.weighted_window_price,
+        source_trade_count: priceView.source_trade_count,
+        window_sec: priceView.window_sec,
+      },
+      recent_trades: priceView.recent_trades || [],
       holder_stats: holdersResult.holders,
       leaderboard: holdersResult.leaderboard,
       my_wallet: {

@@ -515,6 +515,32 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:10px;">
+        <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+          <div style="font-size:13px;color:#c3e5ff;">Realtime Price & Recent Trades</div>
+          <div id="spotMetaText" class="mono" style="font-size:12px;color:#9fc2df;">-</div>
+        </div>
+        <div class="status" style="margin-top:0;">
+          <div id="spotPricePill" class="pill mono">Spot Price: -</div>
+          <div id="spotMcapPill" class="pill mono">Spot MCAP: -</div>
+        </div>
+        <div class="table-wrap" style="max-height:34vh; margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Price</th>
+                <th>Spent V</th>
+                <th>Recv T</th>
+                <th>Hash</th>
+              </tr>
+            </thead>
+            <tbody id="recentTradeBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="panel-grid">
         <div class="card">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="holders_title">Holders</div>
@@ -687,6 +713,10 @@
       const kpiCd = $('kpiCd');
       const kpiRmv = $('kpiRmv');
       const kpiCost = $('kpiCost');
+      const spotPricePill = $('spotPricePill');
+      const spotMcapPill = $('spotMcapPill');
+      const spotMetaText = $('spotMetaText');
+      const recentTradeBody = $('recentTradeBody');
       const explorerAddressInput = $('explorerAddressInput');
       const explorerContractInput = $('explorerContractInput');
       const explorerChainIdInput = $('explorerChainIdInput');
@@ -1418,9 +1448,15 @@
             const msg = d?.error || d?.upstream?.message || 'query failed';
             throw new Error(msg);
           }
-          const rows = d?.upstream?.result || [];
+          const result = d?.upstream?.result;
+          const rows = Array.isArray(result) ? result : [];
           renderExplorerRows(rows);
-          setExplorerStatus(`ok, rows=${rows.length}` , 'ok');
+          if (Array.isArray(result)) {
+            setExplorerStatus(`ok, rows=${rows.length}`, 'ok');
+          } else {
+            const detail = String(result || d?.upstream?.message || 'upstream returned non-array result');
+            setExplorerStatus(`no rows, upstream=${detail}`, 'warn');
+          }
         } catch (err) {
           setExplorerStatus(String(err?.message || err), 'err');
         } finally {
@@ -1513,6 +1549,33 @@
         }).join('');
       }
 
+      function renderRealtimePriceAndTrades(snapshot) {
+        const p = snapshot?.price || {};
+        const spotPrice = Number(p.spot_price || 0);
+        const spotMcap = Number(p.spot_mcap || 0);
+        spotPricePill.textContent = `Spot Price: ${fmt(spotPrice)}`;
+        spotMcapPill.textContent = `Spot MCAP: ${fmt(spotMcap)}`;
+        spotMetaText.textContent = `window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+
+        const rows = (snapshot?.recent_trades || []).slice(0, 40);
+        recentTradeBody.innerHTML = rows.map((r) => {
+          const ts = Number(r.timestamp || 0);
+          const tm = ts > 0 ? new Date(ts * 1000).toLocaleTimeString() : '-';
+          const side = String(r.side || 'other');
+          const sideClass = side === 'buy' ? 'good' : side === 'sell' ? 'bad' : '';
+          return `
+            <tr>
+              <td>${tm}</td>
+              <td class="${sideClass}">${side}</td>
+              <td>${fmt(r.price || 0)}</td>
+              <td>${fmt(r.spent_virtual || 0)}</td>
+              <td>${fmt(r.received_token || 0)}</td>
+              <td class="mono" title="${r.tx_hash || ''}">${shortAddr(r.tx_hash || '')}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
       function renderRule(snapshot) {
         const sig = snapshot.signal_state || {};
         const pair = sig.pair || {};
@@ -1583,6 +1646,7 @@
         renderCurve(snapshot.curves || {});
         renderHolders(snapshot);
         renderSpecial(snapshot);
+        renderRealtimePriceAndTrades(snapshot);
         renderMyWalletStats(snapshot.my_wallets || {});
       }
 
