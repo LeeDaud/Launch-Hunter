@@ -42,6 +42,8 @@ export const config = {
   dbPath: process.env.DB_PATH || './data/app.db',
   baseHttpRpc: process.env.BASE_HTTP_RPC || 'https://mainnet.base.org',
   baseWsRpc: process.env.BASE_WS_RPC || '',
+  spotPairAddress: String(process.env.SPOT_PAIR_ADDRESS || '').toLowerCase(),
+  spotPairRefreshMs: envNumber('SPOT_PAIR_REFRESH_MS', 5000),
   virtualTokenAddress: String(
     process.env.VIRTUAL_CA
     || process.env.VIRTUAL_TOKEN_ADDRESS

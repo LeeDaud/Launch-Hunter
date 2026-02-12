@@ -1,6 +1,6 @@
-﻿import { createPublicClient, http, webSocket } from 'viem';
+import { createPublicClient, http, webSocket } from 'viem';
 import { base } from 'viem/chains';
-import { ERC20_ABI } from './abi.js';
+import { ERC20_ABI, UNISWAP_V2_PAIR_ABI } from './abi.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { sleep } from './utils.js';
@@ -64,6 +64,30 @@ export class RpcService {
       address: tokenAddress,
       abi: ERC20_ABI,
       functionName: 'totalSupply',
+    }));
+  }
+
+  async readPairToken0(pairAddress) {
+    return this.withRetry('readPairToken0', async () => this.httpClient.readContract({
+      address: pairAddress,
+      abi: UNISWAP_V2_PAIR_ABI,
+      functionName: 'token0',
+    }));
+  }
+
+  async readPairToken1(pairAddress) {
+    return this.withRetry('readPairToken1', async () => this.httpClient.readContract({
+      address: pairAddress,
+      abi: UNISWAP_V2_PAIR_ABI,
+      functionName: 'token1',
+    }));
+  }
+
+  async readPairReserves(pairAddress) {
+    return this.withRetry('readPairReserves', async () => this.httpClient.readContract({
+      address: pairAddress,
+      abi: UNISWAP_V2_PAIR_ABI,
+      functionName: 'getReserves',
     }));
   }
 

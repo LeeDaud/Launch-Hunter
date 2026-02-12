@@ -41,6 +41,8 @@ export class TokenTrackerTask {
     this.specialMap = new Map(this.specialAddresses.map((s) => [safeAddress(s.address), s]));
     this.myWalletSet = new Set();
     this.scanQueue = Promise.resolve();
+    this.pairSpot = null;
+    this.pairSpotFetchedAtMs = 0;
     this.walletBackfillQueued = false;
     this.walletBackfillRunning = false;
     this.walletBackfillStatus = 'idle';
@@ -117,6 +119,7 @@ export class TokenTrackerTask {
     if (startFrom <= latest) {
       await this.enqueueScan(startFrom, latest, false, null);
     }
+    await this.refreshPairSpotPrice(true);
 
     this.backfillDone = true;
     this.emitUpdate(true, 'backfill_complete');
@@ -137,6 +140,7 @@ export class TokenTrackerTask {
           const replayFrom = Math.max(0, lastProcessed - config.replayRecentBlocks + 1);
           await this.enqueueScan(replayFrom, this.lastKnownHead, true, null);
         }
+        await this.refreshPairSpotPrice(false);
 
         this.emitUpdate(false, 'tick');
       } catch (err) {
@@ -474,6 +478,55 @@ export class TokenTrackerTask {
           txFactsQueued: missingFactTxHashes.length,
         });
       }
+    }
+    await this.refreshPairSpotPrice(false);
+  }
+
+  async refreshPairSpotPrice(force = false) {
+    const pairAddress = safeAddress(config.spotPairAddress);
+    if (!isAddress(pairAddress)) return;
+    const nowMs = Date.now();
+    const minGap = Math.max(1000, Number(config.spotPairRefreshMs || 5000));
+    if (!force && nowMs - this.pairSpotFetchedAtMs < minGap) return;
+
+    try {
+      const [token0Raw, token1Raw, reserves] = await Promise.all([
+        this.rpc.readPairToken0(pairAddress),
+        this.rpc.readPairToken1(pairAddress),
+        this.rpc.readPairReserves(pairAddress),
+      ]);
+      const token0 = safeAddress(token0Raw);
+      const token1 = safeAddress(token1Raw);
+      const tracked = this.tokenAddress;
+      if (tracked !== token0 && tracked !== token1) return;
+
+      const quoteToken = tracked === token0 ? token1 : token0;
+      const quoteMeta = await this.ensureTokenMeta(quoteToken);
+      const tokenMeta = await this.ensureTokenMeta(tracked);
+
+      const reserve0 = BigInt(reserves?.reserve0 ?? reserves?.[0] ?? 0n);
+      const reserve1 = BigInt(reserves?.reserve1 ?? reserves?.[1] ?? 0n);
+      const tokenReserve = tracked === token0 ? reserve0 : reserve1;
+      const quoteReserve = tracked === token0 ? reserve1 : reserve0;
+      if (tokenReserve <= 0n || quoteReserve <= 0n) return;
+
+      const tokenAmount = toFloat(tokenReserve.toString(), Number(tokenMeta.decimals || 18));
+      const quoteAmount = toFloat(quoteReserve.toString(), Number(quoteMeta.decimals || 18));
+      if (!Number.isFinite(tokenAmount) || !Number.isFinite(quoteAmount) || tokenAmount <= 0 || quoteAmount <= 0) return;
+
+      const spotPrice = quoteAmount / tokenAmount;
+      const totalSupply = toFloat(tokenMeta.totalSupply || '0', Number(tokenMeta.decimals || 18));
+      this.pairSpot = {
+        source: 'pair_reserves',
+        pair_address: pairAddress,
+        quote_token: quoteToken,
+        spot_price: spotPrice,
+        spot_mcap: spotPrice > 0 ? spotPrice * totalSupply : 0,
+        updated_at: nowSec(),
+      };
+      this.pairSpotFetchedAtMs = nowMs;
+    } catch (err) {
+      logger.warn('pair spot refresh failed', { error: String(err?.message || err) });
     }
   }
 
@@ -1043,8 +1096,14 @@ export class TokenTrackerTask {
       })()
       : 0;
 
-    const spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
-    const spotMcap = spotPrice > 0 ? spotPrice * totalSupply : 0;
+    let spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
+    let spotMcap = spotPrice > 0 ? spotPrice * totalSupply : 0;
+    let priceSource = 'inferred_facts';
+    if (this.pairSpot && Number(this.pairSpot.spot_price || 0) > 0) {
+      spotPrice = Number(this.pairSpot.spot_price || 0);
+      spotMcap = Number(this.pairSpot.spot_mcap || 0);
+      priceSource = String(this.pairSpot.source || 'pair_reserves');
+    }
 
     const factsByTx = new Map();
     for (const f of recentFacts) factsByTx.set(String(f.tx_hash || ''), f);
@@ -1105,6 +1164,9 @@ export class TokenTrackerTask {
     return {
       spot_price: spotPrice,
       spot_mcap: spotMcap,
+      source: priceSource,
+      quote_token: this.pairSpot?.quote_token || null,
+      pair_address: this.pairSpot?.pair_address || null,
       last_buy_price: latestSpotPrice,
       weighted_window_price: weightedSpotPrice,
       source_trade_count: calcOn.length,
@@ -1199,6 +1261,9 @@ export class TokenTrackerTask {
       price: {
         spot_price: priceView.spot_price,
         spot_mcap: priceView.spot_mcap,
+        source: priceView.source,
+        quote_token: priceView.quote_token,
+        pair_address: priceView.pair_address,
         last_buy_price: priceView.last_buy_price,
         weighted_window_price: priceView.weighted_window_price,
         source_trade_count: priceView.source_trade_count,

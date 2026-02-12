@@ -1580,7 +1580,7 @@
         spotMcapPill.textContent = `Spot MCAP: ${fmt(spotMcap)}`;
         spotMetaText.textContent = strictChainMode
           ? `strict=true | rows=${Number((snapshot?.recent_transfers_raw || []).length || 0)}`
-          : `window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+          : `source=${String(p.source || 'inferred')} | window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
 
         const rows = strictChainMode
           ? (snapshot?.recent_transfers_raw || []).slice(0, 80)
