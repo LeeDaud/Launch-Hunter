@@ -931,29 +931,49 @@ export class TokenTrackerTask {
     const spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
     const spotMcap = spotPrice > 0 ? spotPrice * totalSupply : 0;
 
-    const recentTrades = recentFacts.slice(0, 40).map((f) => {
-      const classification = String(f.classification || 'transfer_or_unknown');
-      const spentVirtual = toFloat(f.spent_virtual_amount || '0', virtualDecimals);
-      const receivedToken = toFloat(f.received_token_amount || '0', tokenDecimals);
-      const receivedVirtual = toFloat(f.received_virtual_amount || '0', virtualDecimals);
-      const soldToken = toFloat(f.sold_token_amount || '0', tokenDecimals);
+    const factsByTx = new Map();
+    for (const f of recentFacts) factsByTx.set(String(f.tx_hash || ''), f);
+
+    const recentTransfers = this.db.getRecentTransfers(this.tokenAddress, 400);
+    const recentTransfersRaw = recentTransfers.slice(0, 120).map((t) => ({
+      tx_hash: String(t.tx_hash || ''),
+      log_index: Number(t.log_index || 0),
+      block_number: Number(t.block_number || 0),
+      timestamp: Number(t.timestamp || 0),
+      from_address: String(t.from_address || ''),
+      to_address: String(t.to_address || ''),
+      amount_raw: String(t.amount || '0'),
+      amount_token: toFloat(t.amount || '0', tokenDecimals),
+    }));
+    const recentTrades = recentTransfers.slice(0, 120).map((t) => {
+      const txHash = String(t.tx_hash || '');
+      const fact = factsByTx.get(txHash);
+      const classification = String(fact?.classification || 'transfer');
+      const spentVirtual = toFloat(fact?.spent_virtual_amount || '0', virtualDecimals);
+      const receivedToken = toFloat(fact?.received_token_amount || '0', tokenDecimals);
+      const receivedVirtual = toFloat(fact?.received_virtual_amount || '0', virtualDecimals);
+      const soldToken = toFloat(fact?.sold_token_amount || '0', tokenDecimals);
       const side = classification === 'suspected_buy'
         ? 'buy'
         : classification === 'suspected_sell'
           ? 'sell'
-          : 'other';
+          : 'transfer';
       const price = side === 'buy'
         ? (receivedToken > 0 ? spentVirtual / receivedToken : 0)
         : side === 'sell'
           ? (soldToken > 0 ? receivedVirtual / soldToken : 0)
           : 0;
       return {
-        tx_hash: String(f.tx_hash || ''),
-        block_number: Number(f.block_number || 0),
-        timestamp: Number(f.timestamp || 0),
+        tx_hash: txHash,
+        log_index: Number(t.log_index || 0),
+        block_number: Number(t.block_number || 0),
+        timestamp: Number(t.timestamp || 0),
         classification,
         side,
-        actor_address: String(f.actor_address || ''),
+        from_address: String(t.from_address || ''),
+        to_address: String(t.to_address || ''),
+        amount_token: toFloat(t.amount || '0', tokenDecimals),
+        actor_address: String(fact?.actor_address || ''),
         spent_virtual: spentVirtual,
         received_token: receivedToken,
         received_virtual: receivedVirtual,
@@ -970,6 +990,7 @@ export class TokenTrackerTask {
       source_trade_count: calcOn.length,
       window_sec: windowSec,
       recent_trades: recentTrades,
+      recent_transfers_raw: recentTransfersRaw,
     };
   }
 
@@ -1064,6 +1085,7 @@ export class TokenTrackerTask {
         window_sec: priceView.window_sec,
       },
       recent_trades: priceView.recent_trades || [],
+      recent_transfers_raw: priceView.recent_transfers_raw || [],
       holder_stats: holdersResult.holders,
       leaderboard: holdersResult.leaderboard,
       my_wallet: {

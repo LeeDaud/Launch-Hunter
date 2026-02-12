@@ -529,10 +529,12 @@
             <thead>
               <tr>
                 <th>Time</th>
+                <th>Block/Log</th>
                 <th>Side</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Amount T</th>
                 <th>Price</th>
-                <th>Spent V</th>
-                <th>Recv T</th>
                 <th>Hash</th>
               </tr>
             </thead>
@@ -1557,19 +1559,27 @@
         spotMcapPill.textContent = `Spot MCAP: ${fmt(spotMcap)}`;
         spotMetaText.textContent = `window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
 
-        const rows = (snapshot?.recent_trades || []).slice(0, 40);
-        recentTradeBody.innerHTML = rows.map((r) => {
+        const rows = (snapshot?.recent_trades || []).slice(0, 80);
+        const filtered = rows.filter((r) => {
+          const side = String(r.side || 'transfer');
+          return side === 'buy' || side === 'sell' || side === 'transfer';
+        });
+        recentTradeBody.innerHTML = filtered.map((r) => {
           const ts = Number(r.timestamp || 0);
           const tm = ts > 0 ? new Date(ts * 1000).toLocaleTimeString() : '-';
-          const side = String(r.side || 'other');
+          const side = String(r.side || 'transfer');
           const sideClass = side === 'buy' ? 'good' : side === 'sell' ? 'bad' : '';
+          const block = Number(r.block_number || 0);
+          const logIndex = Number(r.log_index || 0);
           return `
             <tr>
               <td>${tm}</td>
+              <td class="mono">${block > 0 ? `${block}/${logIndex}` : '-'}</td>
               <td class="${sideClass}">${side}</td>
+              <td class="mono" title="${r.from_address || ''}">${shortAddr(r.from_address || '')}</td>
+              <td class="mono" title="${r.to_address || ''}">${shortAddr(r.to_address || '')}</td>
+              <td>${fmt(r.amount_token || 0)}</td>
               <td>${fmt(r.price || 0)}</td>
-              <td>${fmt(r.spent_virtual || 0)}</td>
-              <td>${fmt(r.received_token || 0)}</td>
               <td class="mono" title="${r.tx_hash || ''}">${shortAddr(r.tx_hash || '')}</td>
             </tr>
           `;
