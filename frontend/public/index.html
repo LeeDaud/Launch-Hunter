@@ -400,7 +400,7 @@
       .curve-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
       .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
 
-      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; align-items: start; }
+      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
       .table-wrap {
         max-height: 52vh;
         overflow: auto;
@@ -434,7 +434,7 @@
       .protocol-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 
       @media (max-width: 1380px) {
-        .panel-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+        .panel-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 1120px) {
         .hero { grid-template-columns: 1fr; }
@@ -1971,8 +1971,14 @@
         lastProtocolToken = tkn;
         const d = await fetch(apiUrl(`/api/protocol-monitor?token=${tkn}`), { cache: 'no-store' }).then((r) => r.json());
         if (d?.ok) {
-          latestProtocol = d;
-          renderProtocolMonitor(d);
+          latestProtocol = {
+            ...d,
+            summary: { ...(d.summary || {}) },
+            specialFlows: Array.isArray(d.specialFlows) ? [...d.specialFlows] : [],
+            addresses: Array.isArray(d.addresses) ? [...d.addresses] : [],
+            potentialAddresses: Array.isArray(d.potentialAddresses) ? [...d.potentialAddresses] : [],
+          };
+          renderProtocolMonitor(latestProtocol);
           return d;
         }
         return null;
@@ -2225,6 +2231,7 @@
         }
         eventSource = new EventSource(apiUrl('/api/events'));
         eventSource.addEventListener('connected', () => {
+          console.log('SSE connected');
           setHint(t('sse_connected'), 'ok');
         });
         eventSource.addEventListener('update', (ev) => {
@@ -2238,8 +2245,15 @@
         });
         eventSource.addEventListener('protocol_update', (ev) => {
           const p = JSON.parse(ev.data);
-          latestProtocol = p;
-          renderProtocolMonitor(p);
+          console.log('protocol_update received', p);
+          latestProtocol = {
+            ...p,
+            summary: { ...(p.summary || {}) },
+            specialFlows: Array.isArray(p.specialFlows) ? [...p.specialFlows] : [],
+            addresses: Array.isArray(p.addresses) ? [...p.addresses] : [],
+            potentialAddresses: Array.isArray(p.potentialAddresses) ? [...p.potentialAddresses] : [],
+          };
+          renderProtocolMonitor(latestProtocol);
         });
         eventSource.onerror = () => {
           statusPill.textContent = t('status_line', { status: t('status_disconnected'), block: '-' });
