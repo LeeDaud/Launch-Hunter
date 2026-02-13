@@ -431,6 +431,7 @@
           <div class="wallet-actions">
             <input id="myWalletFromBlockInput" class="input" style="width:170px" placeholder="My FromBlock" data-i18n-ph="ph_from_block" />
             <input id="tokenStartBlockInput" class="input" style="width:170px" placeholder="Token StartBlock" />
+            <input id="spotPairInput" class="input mono" style="width:260px" placeholder="Spot Pair (0x...)" />
             <button id="myWalletApplyBtn" class="btn btn-light" type="button" data-i18n="add_wallets">Add Wallets</button>
             <button id="myWalletClearBtn" class="btn btn-light" type="button" data-i18n="clear_wallets">Clear Wallets</button>
           </div>
@@ -687,6 +688,7 @@
       const myWalletsInput = $('myWalletsInput');
       const myWalletFromBlockInput = $('myWalletFromBlockInput');
       const tokenStartBlockInput = $('tokenStartBlockInput');
+      const spotPairInput = $('spotPairInput');
       const myWalletApplyBtn = $('myWalletApplyBtn');
       const myWalletClearBtn = $('myWalletClearBtn');
       const langZhBtn = $('langZhBtn');
@@ -761,6 +763,7 @@
       const LS_MY_WALLETS_LABELS_KEY = 'myWalletsLabels';
       const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
       const LS_TOKEN_START_BLOCK_KEY = 'tokenStartBlock';
+      const LS_SPOT_PAIR_KEY = 'spotPairAddress';
       const LS_LANG_KEY = 'uiLang';
       const LS_EXPLORER_OPTS_KEY = 'explorerTokentxOptions';
       const LS_STRICT_CHAIN_MODE_KEY = 'strictChainMode';
@@ -1106,6 +1109,7 @@
             wallet_address: walletInput.value.trim(),
             sell_tax_pct: Number(sellTaxInput.value || 1),
             token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           });
           if (d?.snapshot) renderSnapshot(d.snapshot);
         } catch {}
@@ -1303,6 +1307,7 @@
         localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
         localStorage.setItem(LS_MY_FROM_BLOCK_KEY, String(Number(myWalletFromBlockInput.value || 0)));
         localStorage.setItem(LS_TOKEN_START_BLOCK_KEY, String(Number(tokenStartBlockInput.value || 0)));
+        localStorage.setItem(LS_SPOT_PAIR_KEY, normalizeAddressOrEmpty(spotPairInput.value));
         if (!push) return;
         try {
           await post('/api/settings/runtime', {
@@ -1312,6 +1317,7 @@
             myWallets: myWallets,
             my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
             token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           });
           setHint(t('wallets_updated', { count: myWallets.length }), 'ok');
         } catch (e) {
@@ -1339,6 +1345,11 @@
 
       function isHexAddress(v) {
         return /^0x[a-fA-F0-9]{40}$/.test(String(v || '').trim());
+      }
+
+      function normalizeAddressOrEmpty(v) {
+        const s = String(v || '').trim();
+        return isHexAddress(s) ? s : '';
       }
 
       function normalizeExplorerOptions(raw) {
@@ -1783,6 +1794,7 @@
             myWallets: myWallets,
             my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
             token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           };
           const d = await post('/api/track/start', payload, 30000);
           renderSnapshot(d.snapshot);
@@ -1866,7 +1878,7 @@
         if (latest) renderRealtimePriceAndTrades(latest);
       });
 
-      [walletInput, sellTaxInput, myWalletFromBlockInput, tokenStartBlockInput].forEach((el) => {
+      [walletInput, sellTaxInput, myWalletFromBlockInput, tokenStartBlockInput, spotPairInput].forEach((el) => {
         el.addEventListener('change', async () => {
           try {
             await post('/api/settings/runtime', {
@@ -1876,6 +1888,7 @@
               myWallets: myWallets,
               my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
               token_start_block: Number(tokenStartBlockInput.value || 0),
+              spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
             });
             setHint(t('runtime_updated'), 'ok');
           } catch {}
@@ -2027,10 +2040,12 @@
       const savedWalletLabels = localStorage.getItem(LS_MY_WALLETS_LABELS_KEY);
       const savedFromBlock = localStorage.getItem(LS_MY_FROM_BLOCK_KEY);
       const savedTokenStartBlock = localStorage.getItem(LS_TOKEN_START_BLOCK_KEY);
+      const savedSpotPair = localStorage.getItem(LS_SPOT_PAIR_KEY);
       if (savedToken) tokenInput.value = savedToken;
       if (savedWallet) walletInput.value = savedWallet;
       if (savedFromBlock) myWalletFromBlockInput.value = savedFromBlock;
       if (savedTokenStartBlock) tokenStartBlockInput.value = savedTokenStartBlock;
+      if (savedSpotPair) spotPairInput.value = savedSpotPair;
       if (savedMyWallets) {
         try {
           myWallets = JSON.parse(savedMyWallets) || [];

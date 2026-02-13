@@ -23,6 +23,7 @@ export class TrackerManager {
       myWallets: this.db.getMyWallets().map((x) => String(x.addr || '').toLowerCase()).filter((x) => isAddress(x)),
       myWalletFromBlock: Number(config.myWalletFromBlock || 0),
       tokenStartBlock: Number(config.tokenStartBlock || 0),
+      spotPairAddress: String(config.spotPairAddress || '').toLowerCase(),
       sellTaxPct: Number(config.sellTaxPct || 1),
       curveWindowMinutes: Number(config.curveWindowMinutes || 30),
     };
@@ -145,9 +146,10 @@ export class TrackerManager {
     this.broadcast({ type: 'metric_mode_changed', ts: Date.now(), snapshot: this.getSnapshot() });
   }
 
-  updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, curveWindowMinutes, myWallets, myWalletFromBlock, tokenStartBlock }) {
+  updateRuntimeSettings({ launchStartTime, walletAddress, sellTaxPct, curveWindowMinutes, myWallets, myWalletFromBlock, tokenStartBlock, spotPairAddress }) {
     let walletsChanged = false;
     let fromBlockChanged = false;
+    let pairChanged = false;
 
     if (launchStartTime != null && Number.isFinite(Number(launchStartTime))) {
       this.runtimeConfig.launchStartTime = Number(launchStartTime);
@@ -179,14 +181,20 @@ export class TrackerManager {
     if (tokenStartBlock != null && Number.isFinite(Number(tokenStartBlock))) {
       this.runtimeConfig.tokenStartBlock = Math.max(0, Number(tokenStartBlock));
     }
+    if (spotPairAddress != null) {
+      const next = String(spotPairAddress || '').trim().toLowerCase();
+      pairChanged = next !== String(this.runtimeConfig.spotPairAddress || '');
+      this.runtimeConfig.spotPairAddress = isAddress(next) ? next : '';
+    }
     if (curveWindowMinutes != null && Number.isFinite(Number(curveWindowMinutes))) {
       this.runtimeConfig.curveWindowMinutes = Math.max(10, Math.min(120, Number(curveWindowMinutes)));
     }
 
-    if (this.activeTask && (walletsChanged || fromBlockChanged)) {
+    if (this.activeTask && (walletsChanged || fromBlockChanged || pairChanged)) {
       this.activeTask.onRuntimeUpdated({
         myWalletsChanged: walletsChanged,
         myWalletFromBlockChanged: fromBlockChanged,
+        spotPairChanged: pairChanged,
       });
     }
 

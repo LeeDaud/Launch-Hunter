@@ -246,8 +246,13 @@ export class TokenTrackerTask {
     this.myWalletSet = new Set(list.map((x) => String(x || '').trim().toLowerCase()).filter((x) => isAddress(x)));
   }
 
-  onRuntimeUpdated({ myWalletsChanged, myWalletFromBlockChanged } = {}) {
+  onRuntimeUpdated({ myWalletsChanged, myWalletFromBlockChanged, spotPairChanged } = {}) {
     if (myWalletsChanged) this.refreshMyWalletSet();
+    if (spotPairChanged) {
+      this.pairSpot = null;
+      this.pairSpotFetchedAtMs = 0;
+      this.refreshPairSpotPrice(true).catch(() => {});
+    }
     if (myWalletsChanged || myWalletFromBlockChanged) {
       this.requestWalletBackfill('runtime_update');
       this.emitUpdate(true, 'wallets_updated');
@@ -483,7 +488,7 @@ export class TokenTrackerTask {
   }
 
   async refreshPairSpotPrice(force = false) {
-    const pairAddress = safeAddress(config.spotPairAddress);
+    const pairAddress = safeAddress(this.runtimeConfig.spotPairAddress || config.spotPairAddress);
     if (!isAddress(pairAddress)) return;
     const nowMs = Date.now();
     const minGap = Math.max(1000, Number(config.spotPairRefreshMs || 5000));
