@@ -1,6 +1,8 @@
 ﻿import { decodeEventLog, formatUnits, isAddress, parseAbiItem, zeroAddress } from 'viem';
 import { buildCounterpartyList, calcBuyTaxPct, config } from './config.js';
 import { logger } from './logger.js';
+import { ERC20_ABI } from './abi.js';
+import { PriceService } from './price-service.js';
 import { minuteFloor, nowSec, safeAddress, sleep, toFloat } from './utils.js';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
@@ -58,7 +60,9 @@ export class TokenTrackerTask {
     this.blockTsCache = new Map();
     this.tokenMetaCache = new Map();
     this.counterpartyList = buildCounterpartyList();
-    this.specialMap = new Map(this.specialAddresses.map((s) => [safeAddress(s.address), s]));
+    this.staticSpecialMap = new Map(this.specialAddresses.map((s) => [safeAddress(s.address), s]));
+    this.dynamicSpecialMap = new Map();
+    this.specialMap = new Map(this.staticSpecialMap);
     this.myWalletSet = new Set();
     this.scanQueue = Promise.resolve();
     this.pairSpot = null;
@@ -66,6 +70,12 @@ export class TokenTrackerTask {
     this.spotPairAutoDetectLastAtMs = 0;
     this.virtualUsd = null;
     this.virtualUsdFetchedAtMs = 0;
+    this.unifiedPrice = null;
+    this.protocolBalances = {
+      sell_wall_token_balance: 0,
+      launch_pool_token_balance: 0,
+      updated_at: 0,
+    };
     this.walletBackfillQueued = false;
     this.walletBackfillRunning = false;
     this.walletBackfillStatus = 'idle';
@@ -81,7 +91,44 @@ export class TokenTrackerTask {
       updated_at: 0,
       wallet_filtered: false,
     };
+    this.priceService = new PriceService({
+      rpc: this.rpc,
+      getTokenMeta: async (addr) => this.ensureTokenMeta(addr),
+      discoverDexPairAddress: async () => this.tryAutoDetectSpotPairAddress(),
+      onDexPairAutoDiscovered: (addr) => {
+        if (isAddress(addr)) this.runtimeConfig.spotPairAddress = safeAddress(addr);
+      },
+    });
+    this._updateSpecialMap();
     this.refreshMyWalletSet();
+  }
+
+  _updateSpecialMap() {
+    const next = new Map(this.staticSpecialMap);
+    for (const [addr, row] of this.dynamicSpecialMap.entries()) next.set(addr, row);
+    this.specialMap = next;
+  }
+
+  _setDynamicSpecialAddress(address, row) {
+    const addr = safeAddress(address);
+    if (!isAddress(addr) || addr === zeroAddress) return;
+    this.dynamicSpecialMap.set(addr, {
+      address: addr,
+      label: String(row?.label || 'Dynamic Protocol Address'),
+      type: String(row?.type || 'dynamic_special'),
+      category: String(row?.category || row?.type || 'dynamic_special'),
+    });
+    this._updateSpecialMap();
+  }
+
+  _findSpecialAddressByType(type) {
+    const t = String(type || '').trim().toLowerCase();
+    for (const row of this.specialMap.values()) {
+      if (String(row?.type || row?.category || '').toLowerCase() === t) {
+        return safeAddress(row.address);
+      }
+    }
+    return '';
   }
 
   async start() {
@@ -143,6 +190,8 @@ export class TokenTrackerTask {
       await this.enqueueScan(startFrom, latest, false, null);
     }
     await this.refreshPairSpotPrice(true);
+    const initTokenMeta = await this.ensureTokenMeta(this.tokenAddress);
+    await this.refreshProtocolBalances(Number(initTokenMeta?.decimals || 18));
 
     this.backfillDone = true;
     this.emitUpdate(true, 'backfill_complete');
@@ -164,6 +213,8 @@ export class TokenTrackerTask {
           await this.enqueueScan(replayFrom, this.lastKnownHead, true, null);
         }
         await this.refreshPairSpotPrice(false);
+        const loopTokenMeta = await this.ensureTokenMeta(this.tokenAddress);
+        await this.refreshProtocolBalances(Number(loopTokenMeta?.decimals || 18));
 
         this.emitUpdate(false, 'tick');
       } catch (err) {
@@ -418,14 +469,24 @@ export class TokenTrackerTask {
         fromBlock: BigInt(start),
         toBlock: BigInt(end),
       });
+      const virtualAddress = safeAddress(config.virtualTokenAddress);
+      const virtualLogs = (isAddress(virtualAddress) && virtualAddress !== this.tokenAddress)
+        ? await this.rpc.getLogs({
+          address: virtualAddress,
+          event: TRANSFER_EVENT,
+          fromBlock: BigInt(start),
+          toBlock: BigInt(end),
+        })
+        : [];
       logger.info('range pull fetched', {
         token: this.tokenAddress,
         start,
         end,
         logCount: logs.length,
+        virtualLogCount: virtualLogs.length,
       });
 
-      await this.fillMissingBlockTimestamps(logs);
+      await this.fillMissingBlockTimestamps([...logs, ...virtualLogs]);
 
       const transferRows = [];
       for (const log of logs) {
@@ -452,6 +513,29 @@ export class TokenTrackerTask {
         });
       }
 
+      const virtualTransferRows = [];
+      for (const log of virtualLogs) {
+        if (!log.transactionHash || log.logIndex == null) continue;
+        let decoded;
+        try {
+          decoded = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data });
+        } catch {
+          continue;
+        }
+        const bn = Number(log.blockNumber);
+        const ts = this.blockTsCache.get(bn) ?? this.db.getBlockTimestamp(bn) ?? await this.getBlockTimestamp(bn);
+        virtualTransferRows.push({
+          token_address: virtualAddress,
+          tx_hash: safeAddress(log.transactionHash),
+          log_index: Number(log.logIndex),
+          block_number: bn,
+          timestamp: ts,
+          from_address: safeAddress(decoded.args.from),
+          to_address: safeAddress(decoded.args.to),
+          amount: BigInt(decoded.args.value).toString(),
+        });
+      }
+
       const filteredRows = walletFilterSet && walletFilterSet.size
         ? transferRows.filter((r) => walletFilterSet.has(r.from_address) || walletFilterSet.has(r.to_address))
         : transferRows;
@@ -460,6 +544,11 @@ export class TokenTrackerTask {
       const { inserted, newTxHashes, insertedRows } = this.db.insertTransfers(filteredRows);
       this.db.applyMyWalletTransferRows(this.tokenAddress, insertedRows, this.myWalletSet);
       this.db.insertSpecialFlows(this.extractSpecialFromTransfers(insertedRows));
+      const protocolRows = [
+        ...this.buildProtocolFlowsFromTransfers(transferRows, { asset: 'token' }),
+        ...this.buildProtocolFlowsFromTransfers(virtualTransferRows, { asset: 'virtual' }),
+      ];
+      if (protocolRows.length) this.db.insertProtocolFlows(protocolRows);
 
       let missingFactTxHashes = [];
       if (config.enableTxFacts && rangeTxHashes.length) {
@@ -508,77 +597,57 @@ export class TokenTrackerTask {
       }
     }
     await this.refreshPairSpotPrice(false);
+    const tokenMeta = await this.ensureTokenMeta(this.tokenAddress);
+    await this.refreshProtocolBalances(Number(tokenMeta?.decimals || 18));
   }
 
   async refreshPairSpotPrice(force = false) {
-    let pairAutoDiscovered = false;
-    let pairAddress = safeAddress(this.runtimeConfig.spotPairAddress || config.spotPairAddress);
-    if (!isAddress(pairAddress) && config.autoDiscoverSpotPair) {
-      const nowMs = Date.now();
-      const probeGap = Math.max(5000, Number(config.autoDiscoverSpotPairIntervalMs || 60000));
-      if (force || nowMs - this.spotPairAutoDetectLastAtMs >= probeGap) {
-        this.spotPairAutoDetectLastAtMs = nowMs;
-        const autoPair = await this.tryAutoDetectSpotPairAddress();
-        if (isAddress(autoPair)) {
-          this.runtimeConfig.spotPairAddress = autoPair;
-          pairAddress = autoPair;
-          pairAutoDiscovered = true;
-          logger.info('spot pair auto-discovered', { token: this.tokenAddress, pairAddress: autoPair });
-        }
-      }
-    }
-    if (!isAddress(pairAddress)) return;
-    const nowMs = Date.now();
-    const minGap = Math.max(1000, Number(config.spotPairRefreshMs || 5000));
-    if (!force && nowMs - this.pairSpotFetchedAtMs < minGap) return;
-
     try {
-      const [token0Raw, token1Raw, reserves] = await Promise.all([
-        this.rpc.readPairToken0(pairAddress),
-        this.rpc.readPairToken1(pairAddress),
-        this.rpc.readPairReserves(pairAddress),
-      ]);
-      const token0 = safeAddress(token0Raw);
-      const token1 = safeAddress(token1Raw);
-      const tracked = this.tokenAddress;
-      if (tracked !== token0 && tracked !== token1) return;
-
-      const quoteToken = tracked === token0 ? token1 : token0;
-      const quoteMeta = await this.ensureTokenMeta(quoteToken);
-      const tokenMeta = await this.ensureTokenMeta(tracked);
-
-      const reserve0 = BigInt(reserves?.reserve0 ?? reserves?.[0] ?? 0n);
-      const reserve1 = BigInt(reserves?.reserve1 ?? reserves?.[1] ?? 0n);
-      const tokenReserve = tracked === token0 ? reserve0 : reserve1;
-      const quoteReserve = tracked === token0 ? reserve1 : reserve0;
-      if (tokenReserve <= 0n || quoteReserve <= 0n) return;
-
-      const spotPriceStr = ratioToDecimalString(
-        quoteReserve,
-        Number(quoteMeta.decimals || 18),
-        tokenReserve,
-        Number(tokenMeta.decimals || 18),
-        18,
-      );
-      const spotPrice = Number(spotPriceStr);
-      const tokenAmount = toFloat(tokenReserve.toString(), Number(tokenMeta.decimals || 18));
-      const quoteAmount = toFloat(quoteReserve.toString(), Number(quoteMeta.decimals || 18));
-      if (!Number.isFinite(tokenAmount) || !Number.isFinite(quoteAmount) || tokenAmount <= 0 || quoteAmount <= 0) return;
-      const totalSupply = toFloat(tokenMeta.totalSupply || '0', Number(tokenMeta.decimals || 18));
-      this.pairSpot = {
-        source: 'pair_reserves',
-        pair_address: pairAddress,
-        quote_token: quoteToken,
-        pair_auto_discovered: pairAutoDiscovered,
-        spot_price: spotPrice,
-        spot_price_str: spotPriceStr,
-        spot_mcap: spotPrice > 0 ? spotPrice * totalSupply : 0,
-        updated_at: nowSec(),
-      };
-      this.pairSpotFetchedAtMs = nowMs;
-      await this.refreshVirtualUsdRate(force);
+      const latestBlock = Number(this.lastKnownHead || await this.rpc.getBlockNumber());
+      const tokenStartBlock = Number(this.runtimeConfig.tokenStartBlock || config.tokenStartBlock || 0);
+      const configuredDexPairAddress = safeAddress(this.runtimeConfig.spotPairAddress || config.spotPairAddress);
+      const result = await this.priceService.refresh({
+        tokenAddress: this.tokenAddress,
+        tokenStartBlock,
+        latestBlock,
+        configuredDexPairAddress,
+        force,
+      });
+      this.unifiedPrice = result?.view || null;
+      this.pairSpotFetchedAtMs = Date.now();
+      if (this.unifiedPrice && Number(this.unifiedPrice.spot_price_virtual || 0) > 0) {
+        if (isAddress(this.unifiedPrice.launch_pool_address || '')) {
+          this._setDynamicSpecialAddress(this.unifiedPrice.launch_pool_address, {
+            label: 'Virtuals LaunchPool',
+            type: 'launch_pool',
+            category: 'launch_pool',
+          });
+        }
+        this.pairSpot = {
+          source: String(this.unifiedPrice.source || 'price_service'),
+          pair_address: this.unifiedPrice.pair_address || null,
+          quote_token: this.unifiedPrice.quote_token || null,
+          pair_auto_discovered: Boolean(this.unifiedPrice.pair_auto_discovered),
+          spot_price: Number(this.unifiedPrice.spot_price_virtual || 0),
+          spot_price_str: String(this.unifiedPrice.spot_price_virtual_str || this.unifiedPrice.spot_price_virtual || '0'),
+          spot_mcap: 0,
+          updated_at: nowSec(),
+          stage: String(this.unifiedPrice.stage || ''),
+          stage_reason: String(this.unifiedPrice.stage_reason || ''),
+          launch_pool_address: this.unifiedPrice.launch_pool_address || null,
+        };
+      }
+      if (this.unifiedPrice?.usd_per_virtual) {
+        this.virtualUsd = {
+          source: this.unifiedPrice.usd_source || 'price_service',
+          usd_per_virtual: Number(this.unifiedPrice.usd_per_virtual || 0),
+          usd_per_virtual_str: String(this.unifiedPrice.usd_per_virtual_str || this.unifiedPrice.usd_per_virtual || ''),
+          updated_at: nowSec(),
+        };
+      }
+      if (result?.changed) this.emitUpdate(true, 'price_updated');
     } catch (err) {
-      logger.warn('pair spot refresh failed', { error: String(err?.message || err) });
+      logger.warn('price service refresh failed', { error: String(err?.message || err) });
     }
   }
 
@@ -609,6 +678,10 @@ export class TokenTrackerTask {
       if (token0 !== virtual && token1 !== virtual) return;
 
       const quoteToken = token0 === virtual ? token1 : token0;
+      if (Array.isArray(config.usdStableTokenAddresses) && config.usdStableTokenAddresses.length) {
+        const stableSet = new Set(config.usdStableTokenAddresses.map((v) => safeAddress(v)).filter((v) => isAddress(v)));
+        if (stableSet.size && !stableSet.has(quoteToken)) return;
+      }
       const quoteMeta = await this.ensureTokenMeta(quoteToken);
       const virtualMeta = await this.ensureTokenMeta(virtual);
 
@@ -674,6 +747,9 @@ export class TokenTrackerTask {
       .sort((a, b) => (a.score === b.score ? b.count - a.count : (b.score > a.score ? 1 : -1)))
       .slice(0, 30);
 
+    const virtual = safeAddress(config.virtualTokenAddress);
+    let bestAddr = '';
+    let bestScore = 0n;
     for (const c of candidates) {
       try {
         const [token0Raw, token1Raw, reserves] = await Promise.all([
@@ -684,16 +760,23 @@ export class TokenTrackerTask {
         const token0 = safeAddress(token0Raw);
         const token1 = safeAddress(token1Raw);
         if (token0 !== this.tokenAddress && token1 !== this.tokenAddress) continue;
+        const quoteToken = token0 === this.tokenAddress ? token1 : token0;
+        if (config.requireVirtualQuoteForSpot && isAddress(virtual) && quoteToken !== virtual) continue;
         const reserve0 = BigInt(reserves?.reserve0 ?? reserves?.[0] ?? 0n);
         const reserve1 = BigInt(reserves?.reserve1 ?? reserves?.[1] ?? 0n);
         const tokenReserve = token0 === this.tokenAddress ? reserve0 : reserve1;
-        if (tokenReserve <= 0n) continue;
-        return c.addr;
+        const quoteReserve = token0 === this.tokenAddress ? reserve1 : reserve0;
+        if (tokenReserve <= 0n || quoteReserve <= 0n) continue;
+        const score = tokenReserve * quoteReserve;
+        if (score > bestScore) {
+          bestScore = score;
+          bestAddr = c.addr;
+        }
       } catch {
         // not a v2 pair or call failed
       }
     }
-    return '';
+    return bestAddr;
   }
 
   extractSpecialFromTransfers(rows) {
@@ -731,6 +814,44 @@ export class TokenTrackerTask {
       }
     }
     return events;
+  }
+
+  buildProtocolFlowsFromTransfers(rows, { asset } = {}) {
+    const flows = [];
+    const kind = String(asset || 'token').toLowerCase() === 'virtual' ? 'virtual' : 'token';
+    for (const row of rows || []) {
+      const from = this.specialMap.get(row.from_address);
+      const to = this.specialMap.get(row.to_address);
+      if (!from && !to) continue;
+      const amount = String(row.amount || '0');
+      if (from) {
+        flows.push({
+          token: this.tokenAddress,
+          block_number: Number(row.block_number || 0),
+          timestamp: Number(row.timestamp || 0),
+          address: String(row.from_address || '').toLowerCase(),
+          type: String(from.type || from.category || 'unknown'),
+          direction: 'out',
+          amount_token: kind === 'token' ? amount : '0',
+          amount_virtual: kind === 'virtual' ? amount : '0',
+          tx_hash: String(row.tx_hash || '').toLowerCase(),
+        });
+      }
+      if (to) {
+        flows.push({
+          token: this.tokenAddress,
+          block_number: Number(row.block_number || 0),
+          timestamp: Number(row.timestamp || 0),
+          address: String(row.to_address || '').toLowerCase(),
+          type: String(to.type || to.category || 'unknown'),
+          direction: 'in',
+          amount_token: kind === 'token' ? amount : '0',
+          amount_virtual: kind === 'virtual' ? amount : '0',
+          tx_hash: String(row.tx_hash || '').toLowerCase(),
+        });
+      }
+    }
+    return flows;
   }
 
   async processTxFacts(txHashes) {
@@ -1067,6 +1188,121 @@ export class TokenTrackerTask {
     return Array.from(map.values()).sort((a, b) => b.net_virtual_5m - a.net_virtual_5m);
   }
 
+  async refreshProtocolBalances(tokenDecimals) {
+    try {
+      const sellWall = this._findSpecialAddressByType('protocol_lock');
+      const launchPool = this._findSpecialAddressByType('launch_pool');
+      let sellWallRaw = 0n;
+      let launchPoolRaw = 0n;
+      if (isAddress(sellWall)) {
+        try {
+          sellWallRaw = BigInt(await this.rpc.readContract({
+            address: this.tokenAddress,
+            abi: ERC20_ABI,
+            functionName: 'balanceOf',
+            args: [sellWall],
+          }));
+        } catch {}
+      }
+      if (isAddress(launchPool)) {
+        try {
+          launchPoolRaw = BigInt(await this.rpc.readContract({
+            address: this.tokenAddress,
+            abi: ERC20_ABI,
+            functionName: 'balanceOf',
+            args: [launchPool],
+          }));
+        } catch {}
+      }
+      this.protocolBalances = {
+        sell_wall_token_balance: toFloat(sellWallRaw.toString(), tokenDecimals),
+        launch_pool_token_balance: toFloat(launchPoolRaw.toString(), tokenDecimals),
+        updated_at: nowSec(),
+      };
+    } catch {
+      // ignore
+    }
+  }
+
+  computeProtocolActivity(tokenDecimals, virtualDecimals) {
+    const now = nowSec();
+    const rows = this.db.getProtocolFlowsSince(this.tokenAddress, now - 3600);
+    let inflow1m = 0;
+    let outflow1m = 0;
+    let inflow5m = 0;
+    let outflow5m = 0;
+    let interaction1m = 0;
+    const executorTx5m = new Set();
+    const byAddress = new Map();
+
+    for (const r of rows) {
+      const ts = Number(r.timestamp || 0);
+      const in1m = ts >= now - 60;
+      const in5m = ts >= now - 300;
+      const directionIn = String(r.direction || '') === 'in';
+      const amountVirtual = toFloat(r.amount_virtual || '0', virtualDecimals);
+      const amountToken = toFloat(r.amount_token || '0', tokenDecimals);
+      const addr = safeAddress(r.address);
+      if (!byAddress.has(addr)) {
+        byAddress.set(addr, {
+          address: addr,
+          type: String(r.type || 'unknown'),
+          inflow_virtual_1m: 0,
+          outflow_virtual_1m: 0,
+          net_virtual_1m: 0,
+          inflow_virtual_5m: 0,
+          outflow_virtual_5m: 0,
+          net_virtual_5m: 0,
+          net_token_5m: 0,
+          interaction_count_5m: 0,
+        });
+      }
+      const row = byAddress.get(addr);
+      if (in1m) {
+        interaction1m += 1;
+        if (directionIn) inflow1m += amountVirtual;
+        else outflow1m += amountVirtual;
+        if (directionIn) row.inflow_virtual_1m += amountVirtual;
+        else row.outflow_virtual_1m += amountVirtual;
+      }
+      if (in5m) {
+        if (directionIn) inflow5m += amountVirtual;
+        else outflow5m += amountVirtual;
+        if (directionIn) row.inflow_virtual_5m += amountVirtual;
+        else row.outflow_virtual_5m += amountVirtual;
+        row.interaction_count_5m += 1;
+        row.net_token_5m += directionIn ? amountToken : -amountToken;
+        if (String(r.type || '') === 'protocol_executor') executorTx5m.add(String(r.tx_hash || ''));
+      }
+      row.net_virtual_1m = row.inflow_virtual_1m - row.outflow_virtual_1m;
+      row.net_virtual_5m = row.inflow_virtual_5m - row.outflow_virtual_5m;
+    }
+
+    const net1m = inflow1m - outflow1m;
+    const net5m = inflow5m - outflow5m;
+    const alert = inflow1m >= Number(config.protocolAlertInflowVirtual || 5000);
+    const leaderboard = Array.from(byAddress.values())
+      .sort((a, b) => b.net_virtual_1m - a.net_virtual_1m)
+      .slice(0, 20);
+
+    return {
+      protocol_inflow_1m: inflow1m,
+      protocol_outflow_1m: outflow1m,
+      net_flow_1m: net1m,
+      protocol_inflow_5m: inflow5m,
+      protocol_outflow_5m: outflow5m,
+      net_flow_5m: net5m,
+      interaction_count_1m: interaction1m,
+      executor_interactions_5m: executorTx5m.size,
+      sell_wall_token_balance: Number(this.protocolBalances.sell_wall_token_balance || 0),
+      launch_pool_token_balance: Number(this.protocolBalances.launch_pool_token_balance || 0),
+      alert,
+      alert_threshold_virtual: Number(config.protocolAlertInflowVirtual || 5000),
+      by_address: leaderboard,
+      updated_at: now,
+    };
+  }
+
   computeMyWalletStats(tokenMeta, virtualMeta) {
     const wallets = Array.from(this.myWalletSet);
     const tokenDecimals = tokenMeta.decimals;
@@ -1172,7 +1408,7 @@ export class TokenTrackerTask {
     };
   }
 
-  buildCurves(tokenMeta, myWalletSummary) {
+  buildCurves(tokenMeta, myWalletSummary, spotMcapOverride = 0) {
     const tokenDecimals = tokenMeta.decimals;
     const virtualMeta = this.tokenMetaCache.get(safeAddress(config.virtualTokenAddress)) || { decimals: 18 };
     const virtualDecimals = virtualMeta.decimals;
@@ -1211,6 +1447,13 @@ export class TokenTrackerTask {
       const emv = lastMcap > 0 ? lastMcap / (1 - taxPct / 100) : 0;
       emvSeries.push({ minute_ts: m, value: emv, tax_pct: taxPct, mcap: lastMcap });
       rmvSeries.push({ minute_ts: m, value: rmv });
+    }
+
+    if (spotMcapOverride > 0 && emvSeries.length) {
+      const last = emvSeries[emvSeries.length - 1];
+      const taxPct = Number(last.tax_pct || 1);
+      last.mcap = spotMcapOverride;
+      last.value = spotMcapOverride / Math.max(1e-9, 1 - taxPct / 100);
     }
 
     return { emvSeries, rmvSeries };
@@ -1266,11 +1509,25 @@ export class TokenTrackerTask {
     let spotPriceVirtualStr = spotPriceVirtual > 0 ? String(spotPriceVirtual) : '0';
     let spotMcapVirtual = spotPriceVirtual > 0 ? spotPriceVirtual * totalSupply : 0;
     let priceSource = 'inferred_facts';
-    if (this.pairSpot && Number(this.pairSpot.spot_price || 0) > 0) {
+    let priceStage = null;
+    let launchPoolAddress = null;
+    let stageReason = null;
+    if (this.unifiedPrice && Number(this.unifiedPrice.spot_price_virtual || 0) > 0) {
+      spotPriceVirtual = Number(this.unifiedPrice.spot_price_virtual || 0);
+      spotPriceVirtualStr = String(this.unifiedPrice.spot_price_virtual_str || this.unifiedPrice.spot_price_virtual || '0');
+      spotMcapVirtual = spotPriceVirtual > 0 ? spotPriceVirtual * totalSupply : 0;
+      priceSource = String(this.unifiedPrice.source || 'price_service');
+      priceStage = String(this.unifiedPrice.stage || '');
+      launchPoolAddress = this.unifiedPrice.launch_pool_address || null;
+      stageReason = String(this.unifiedPrice.stage_reason || '');
+    } else if (this.pairSpot && Number(this.pairSpot.spot_price || 0) > 0) {
       spotPriceVirtual = Number(this.pairSpot.spot_price || 0);
       spotPriceVirtualStr = String(this.pairSpot.spot_price_str || this.pairSpot.spot_price || '0');
-      spotMcapVirtual = Number(this.pairSpot.spot_mcap || 0);
+      spotMcapVirtual = spotPriceVirtual > 0 ? spotPriceVirtual * totalSupply : 0;
       priceSource = String(this.pairSpot.source || 'pair_reserves');
+      priceStage = String(this.pairSpot.stage || '');
+      launchPoolAddress = this.pairSpot.launch_pool_address || null;
+      stageReason = String(this.pairSpot.stage_reason || '');
     }
 
     const usdPerVirtual = Number(this.virtualUsd?.usd_per_virtual || config.virtualUsdFallback || 0);
@@ -1346,6 +1603,9 @@ export class TokenTrackerTask {
       usd_per_virtual_str: this.virtualUsd?.usd_per_virtual_str || (usdPerVirtual > 0 ? String(usdPerVirtual) : null),
       usd_source: this.virtualUsd?.source || (usdPerVirtual > 0 ? 'env_fallback' : null),
       source: priceSource,
+      stage: priceStage,
+      stage_reason: stageReason,
+      launch_pool_address: launchPoolAddress,
       quote_token: this.pairSpot?.quote_token || null,
       pair_address: this.pairSpot?.pair_address || null,
       pair_auto_discovered: Boolean(this.pairSpot?.pair_auto_discovered),
@@ -1409,9 +1669,10 @@ export class TokenTrackerTask {
       minuteSeries.push({ minute_ts: minute, value: Number(minuteMap.get(minute) || 0) });
     }
 
-    const curves = this.buildCurves(tokenMeta, myWalletSummary);
     const priceView = this.computeSpotAndRecentTrades(tokenMeta, virtualMeta);
+    const curves = this.buildCurves(tokenMeta, myWalletSummary, Number(priceView.spot_mcap || 0));
     const specialStats = this.computeSpecialStats(tokenDecimals, virtualDecimals);
+    const protocolActivity = this.computeProtocolActivity(tokenDecimals, virtualDecimals);
 
     const taxNowSec = this.lastChainTimeSec > 0 ? this.lastChainTimeSec : nowSec();
     return {
@@ -1453,6 +1714,9 @@ export class TokenTrackerTask {
         usd_per_virtual_str: priceView.usd_per_virtual_str,
         usd_source: priceView.usd_source,
         source: priceView.source,
+        stage: priceView.stage,
+        stage_reason: priceView.stage_reason,
+        launch_pool_address: priceView.launch_pool_address,
         quote_token: priceView.quote_token,
         pair_address: priceView.pair_address,
         pair_auto_discovered: priceView.pair_auto_discovered,
@@ -1472,6 +1736,7 @@ export class TokenTrackerTask {
       },
       my_wallets: myWalletSummary,
       special_stats: specialStats,
+      protocol_activity: protocolActivity,
       ingest: {
         ...this.lastIngest,
         counterparty_configured: this.counterpartyList.length > 0,

@@ -119,6 +119,20 @@ export class TrackerDB {
         UNIQUE(token_address, tx_hash, special_address, asset, direction, amount)
       );
 
+      CREATE TABLE IF NOT EXISTS protocol_flows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL,
+        block_number INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        address TEXT NOT NULL,
+        type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        amount_token TEXT NOT NULL DEFAULT '0',
+        amount_virtual TEXT NOT NULL DEFAULT '0',
+        tx_hash TEXT NOT NULL,
+        UNIQUE(token, tx_hash, address, type, direction, amount_token, amount_virtual)
+      );
+
       CREATE TABLE IF NOT EXISTS block_timestamps (
         block_number INTEGER PRIMARY KEY,
         timestamp INTEGER NOT NULL
@@ -154,6 +168,8 @@ export class TrackerDB {
       CREATE INDEX IF NOT EXISTS idx_fact_addr_token_time ON tx_fact_addresses(token_address, timestamp);
       CREATE INDEX IF NOT EXISTS idx_bucket_token_time ON minute_buckets(token_address, minute_ts);
       CREATE INDEX IF NOT EXISTS idx_special_token_time ON special_flows(token_address, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_protocol_token_time ON protocol_flows(token, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_protocol_token_type_time ON protocol_flows(token, type, timestamp);
       CREATE INDEX IF NOT EXISTS idx_wallet_stats_token ON my_wallet_stats(token_address);
     `);
 
@@ -273,6 +289,21 @@ export class TrackerDB {
     this.stmtSpecialSince = this.db.prepare(`
       SELECT * FROM special_flows
       WHERE token_address = ? AND timestamp >= ?
+      ORDER BY timestamp DESC
+    `);
+
+    this.stmtInsertProtocolFlow = this.db.prepare(`
+      INSERT OR IGNORE INTO protocol_flows(
+        token, block_number, timestamp, address, type, direction, amount_token, amount_virtual, tx_hash
+      ) VALUES(
+        @token, @block_number, @timestamp, @address, @type, @direction, @amount_token, @amount_virtual, @tx_hash
+      )
+    `);
+
+    this.stmtProtocolSince = this.db.prepare(`
+      SELECT id, token, block_number, timestamp, address, type, direction, amount_token, amount_virtual, tx_hash
+      FROM protocol_flows
+      WHERE token = ? AND timestamp >= ?
       ORDER BY timestamp DESC
     `);
 
@@ -426,6 +457,25 @@ export class TrackerDB {
       let count = 0;
       for (const e of events || []) {
         const r = this.stmtInsertSpecial.run(e);
+        if (r.changes > 0) count += 1;
+      }
+      return count;
+    });
+
+    this.txInsertProtocolFlows = this.db.transaction((rows) => {
+      let count = 0;
+      for (const row of rows || []) {
+        const r = this.stmtInsertProtocolFlow.run({
+          token: row.token,
+          block_number: Number(row.block_number || 0),
+          timestamp: Number(row.timestamp || 0),
+          address: String(row.address || '').toLowerCase(),
+          type: String(row.type || 'unknown'),
+          direction: String(row.direction || 'in'),
+          amount_token: String(row.amount_token || '0'),
+          amount_virtual: String(row.amount_virtual || '0'),
+          tx_hash: String(row.tx_hash || '').toLowerCase(),
+        });
         if (r.changes > 0) count += 1;
       }
       return count;
@@ -600,6 +650,10 @@ export class TrackerDB {
     return this.txInsertSpecial(events);
   }
 
+  insertProtocolFlows(rows) {
+    return this.txInsertProtocolFlows(rows || []);
+  }
+
   getRecentBuckets(tokenAddress, fromMinuteTs) {
     return this.stmtRecentBuckets.all(tokenAddress, fromMinuteTs);
   }
@@ -655,6 +709,10 @@ export class TrackerDB {
 
   getSpecialFlowsSince(tokenAddress, fromTs) {
     return this.stmtSpecialSince.all(tokenAddress, fromTs);
+  }
+
+  getProtocolFlowsSince(tokenAddress, fromTs) {
+    return this.stmtProtocolSince.all(tokenAddress, Number(fromTs || 0));
   }
 
   saveMyWallets(rows) {

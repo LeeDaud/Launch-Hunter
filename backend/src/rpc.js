@@ -91,6 +91,15 @@ export class RpcService {
     }));
   }
 
+  async readContract({ address, abi, functionName, args = [] }) {
+    return this.withRetry(`readContract:${functionName}`, async () => this.httpClient.readContract({
+      address,
+      abi,
+      functionName,
+      args,
+    }));
+  }
+
   subscribeNewHeads(onBlock) {
     if (!this.wsClient || !config.useWsHead) return null;
     try {

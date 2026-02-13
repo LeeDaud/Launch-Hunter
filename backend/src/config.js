@@ -46,8 +46,23 @@ export const config = {
   spotPairRefreshMs: envNumber('SPOT_PAIR_REFRESH_MS', 5000),
   autoDiscoverSpotPair: envBool('AUTO_DISCOVER_SPOT_PAIR', true),
   autoDiscoverSpotPairIntervalMs: envNumber('AUTO_DISCOVER_SPOT_PAIR_INTERVAL_MS', 60000),
+  externalDexFactoryAddress: String(process.env.EXTERNAL_DEX_FACTORY_ADDRESS || '').toLowerCase(),
+  externalWethAddress: String(process.env.EXTERNAL_WETH_ADDRESS || '0x4200000000000000000000000000000000000006').toLowerCase(),
+  externalMinLiquidityUsd: envNumber('EXTERNAL_MIN_LIQUIDITY_USD', 50000),
+  wethUsdFallback: envNumber('WETH_USD_FALLBACK', 0),
+  virtualsLaunchPoolFactoryAddress: String(process.env.VIRTUALS_LAUNCHPOOL_FACTORY_ADDRESS || '').toLowerCase(),
+  launchPoolScanBlocks: envNumber('LAUNCHPOOL_SCAN_BLOCKS', 30000),
+  internalPriceDecimals: envNumber('INTERNAL_PRICE_DECIMALS', 18),
+  protocolAlertInflowVirtual: envNumber('PROTOCOL_ALERT_INFLOW_VIRTUAL', 5000),
+  requireVirtualQuoteForSpot: envBool('REQUIRE_VIRTUAL_QUOTE_FOR_SPOT', true),
   virtualUsdPairAddress: String(process.env.VIRTUAL_USD_PAIR_ADDRESS || '').toLowerCase(),
   virtualUsdFallback: envNumber('VIRTUAL_USD_FALLBACK', 0),
+  usdStableTokenAddresses: envAddressList('USD_STABLE_TOKEN_ADDRESSES').length
+    ? envAddressList('USD_STABLE_TOKEN_ADDRESSES')
+    : [
+      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC (Base)
+      '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca', // USDbC (legacy)
+    ],
   virtualTokenAddress: String(
     process.env.VIRTUAL_CA
     || process.env.VIRTUAL_TOKEN_ADDRESS

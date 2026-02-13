@@ -6,6 +6,7 @@ import { RpcService } from './rpc.js';
 import { RuleEngine } from './rules.js';
 import { TokenTrackerTask } from './tracker-task.js';
 import { logger } from './logger.js';
+import { SPECIAL_ADDRESSES, normalizeSpecialAddressRows } from './virtuals-special-addresses.js';
 
 export class TrackerManager {
   constructor({ db }) {
@@ -37,20 +38,17 @@ export class TrackerManager {
   }
 
   _loadSpecialAddresses() {
+    const base = normalizeSpecialAddressRows(SPECIAL_ADDRESSES);
     try {
       const file = path.resolve(config.specialAddressFile);
       const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
-      const rows = JSON.parse(raw);
-      return rows
-        .map((r) => ({
-          address: String(r.address || '').toLowerCase(),
-          label: String(r.label || 'Unknown'),
-          category: String(r.category || 'Unknown'),
-        }))
-        .filter((r) => isAddress(r.address));
+      const rows = normalizeSpecialAddressRows(JSON.parse(raw));
+      const byAddr = new Map(base.map((r) => [r.address, r]));
+      for (const r of rows) byAddr.set(r.address, r);
+      return Array.from(byAddr.values()).filter((r) => isAddress(r.address));
     } catch (err) {
       logger.warn('failed to load special addresses', { error: String(err?.message || err) });
-      return [];
+      return base;
     }
   }
 

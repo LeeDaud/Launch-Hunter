@@ -594,6 +594,35 @@
             </table>
           </div>
         </div>
+
+        <div class="card">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Activity</div>
+          <div class="status" style="margin-top:0;">
+            <div id="protocol1mPill" class="pill mono">Net 1m: -</div>
+            <div id="protocol5mPill" class="pill mono">Net 5m: -</div>
+            <div id="protocolExecPill" class="pill mono">Executor 5m: -</div>
+          </div>
+          <div class="status" style="margin-top:6px;">
+            <div id="sellWallBalancePill" class="pill mono">Sell Wall Balance: -</div>
+            <div id="launchPoolBalancePill" class="pill mono">LaunchPool Balance: -</div>
+          </div>
+          <div id="protocolAlertText" class="mono" style="margin-top:6px;font-size:12px;color:#9fc2df;">Alert: -</div>
+          <div class="table-wrap" style="margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Type</th>
+                  <th>Net 1m V</th>
+                  <th>Net 5m V</th>
+                  <th>Net 5m T</th>
+                  <th>Interactions 5m</th>
+                </tr>
+              </thead>
+              <tbody id="protocolBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="card" style="margin-top:10px;">
@@ -721,6 +750,13 @@
       const curveSvg = $('curveSvg');
       const holderBody = $('holderBody');
       const specialBody = $('specialBody');
+      const protocol1mPill = $('protocol1mPill');
+      const protocol5mPill = $('protocol5mPill');
+      const protocolExecPill = $('protocolExecPill');
+      const sellWallBalancePill = $('sellWallBalancePill');
+      const launchPoolBalancePill = $('launchPoolBalancePill');
+      const protocolAlertText = $('protocolAlertText');
+      const protocolBody = $('protocolBody');
       const kpi1 = $('kpi1');
       const kpi2 = $('kpi2');
       const kpi5 = $('kpi5');
@@ -1602,6 +1638,40 @@
         }).join('');
       }
 
+      function renderProtocol(snapshot) {
+        const p = snapshot?.protocol_activity || {};
+        const net1m = Number(p.net_flow_1m || 0);
+        const net5m = Number(p.net_flow_5m || 0);
+        const inflow1m = Number(p.protocol_inflow_1m || 0);
+        const outflow1m = Number(p.protocol_outflow_1m || 0);
+        const inflow5m = Number(p.protocol_inflow_5m || 0);
+        const outflow5m = Number(p.protocol_outflow_5m || 0);
+        protocol1mPill.textContent = `Net 1m: ${fmt(net1m)} V (in ${fmt(inflow1m)} / out ${fmt(outflow1m)})`;
+        protocol5mPill.textContent = `Net 5m: ${fmt(net5m)} V (in ${fmt(inflow5m)} / out ${fmt(outflow5m)})`;
+        protocolExecPill.textContent = `Executor 5m: ${Number(p.executor_interactions_5m || 0)}`;
+        sellWallBalancePill.textContent = `Sell Wall Balance: ${fmt(p.sell_wall_token_balance || 0)} T`;
+        launchPoolBalancePill.textContent = `LaunchPool Balance: ${fmt(p.launch_pool_token_balance || 0)} T`;
+        protocolAlertText.textContent = p.alert
+          ? `Alert: inflow_1m ${fmt(inflow1m)} V >= threshold ${fmt(p.alert_threshold_virtual || 0)}`
+          : `Alert: none (threshold ${fmt(p.alert_threshold_virtual || 0)} V)`;
+        protocolAlertText.style.color = p.alert ? '#ffb5c2' : '#9fc2df';
+
+        const rows = p.by_address || [];
+        protocolBody.innerHTML = rows.map((r) => {
+          const cls = Number(r.net_virtual_1m || 0) >= 0 ? 'good' : 'bad';
+          return `
+            <tr>
+              <td class="mono" title="${r.address || ''}">${shortAddr(r.address || '')}</td>
+              <td>${r.type || '-'}</td>
+              <td class="${cls}">${fmt(r.net_virtual_1m || 0)}</td>
+              <td>${fmt(r.net_virtual_5m || 0)}</td>
+              <td>${fmt(r.net_token_5m || 0)}</td>
+              <td>${Number(r.interaction_count_5m || 0)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
       function renderRealtimePriceAndTrades(snapshot) {
         if (strictChainModeBtn) {
           strictChainModeBtn.textContent = `Strict Chain: ${strictChainMode ? 'ON' : 'OFF'}`;
@@ -1729,6 +1799,7 @@
         renderCurve(snapshot.curves || {});
         renderHolders(snapshot);
         renderSpecial(snapshot);
+        renderProtocol(snapshot);
         renderRealtimePriceAndTrades(snapshot);
         renderMyWalletStats(snapshot.my_wallets || {});
       }
