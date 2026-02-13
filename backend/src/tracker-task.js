@@ -76,6 +76,8 @@ export class TokenTrackerTask {
       launch_pool_token_balance: 0,
       updated_at: 0,
     };
+    this.lastPotentialDiscoverAtMs = 0;
+    this.potentialProtocolMap = new Map();
     this.walletBackfillQueued = false;
     this.walletBackfillRunning = false;
     this.walletBackfillStatus = 'idle';
@@ -119,6 +121,26 @@ export class TokenTrackerTask {
       category: String(row?.category || row?.type || 'dynamic_special'),
     });
     this._updateSpecialMap();
+  }
+
+  _setPotentialProtocolAddress(address, extra = {}) {
+    const addr = safeAddress(address);
+    if (!isAddress(addr) || addr === zeroAddress) return;
+    this.potentialProtocolMap.set(addr, {
+      address: addr,
+      label: 'Potential Protocol Address',
+      type: 'potential_protocol_address',
+      category: 'potential_protocol_address',
+      interactions: Number(extra.interactions || 0),
+      distinct_tokens: Number(extra.distinct_tokens || 0),
+      virtual_balance: Number(extra.virtual_balance || 0),
+      updated_at: nowSec(),
+    });
+    this._setDynamicSpecialAddress(addr, {
+      label: 'Potential Protocol Address',
+      type: 'potential_protocol_address',
+      category: 'potential_protocol_address',
+    });
   }
 
   _findSpecialAddressByType(type) {
@@ -549,6 +571,7 @@ export class TokenTrackerTask {
         ...this.buildProtocolFlowsFromTransfers(virtualTransferRows, { asset: 'virtual' }),
       ];
       if (protocolRows.length) this.db.insertProtocolFlows(protocolRows);
+      await this.autoDiscoverPotentialProtocolAddresses(virtualTransferRows, end);
 
       let missingFactTxHashes = [];
       if (config.enableTxFacts && rangeTxHashes.length) {
@@ -852,6 +875,99 @@ export class TokenTrackerTask {
       }
     }
     return flows;
+  }
+
+  async autoDiscoverPotentialProtocolAddresses(virtualTransferRows = [], latestBlock = 0) {
+    if (!config.protocolAutoDiscoverEnabled) return;
+    const nowMs = Date.now();
+    const minGap = Math.max(5000, Number(config.protocolAutoDiscoverIntervalMs || 60000));
+    if (nowMs - this.lastPotentialDiscoverAtMs < minGap) return;
+    this.lastPotentialDiscoverAtMs = nowMs;
+
+    const windowBlocks = Math.max(200, Number(config.protocolAutoDiscoverBlocks || 2500));
+    const minInteractions = Math.max(2, Number(config.protocolAutoDiscoverMinInteractions || 8));
+    const minDistinctTokens = Math.max(1, Number(config.protocolAutoDiscoverMinDistinctTokens || 2));
+    const minVirtualBalance = Math.max(0, Number(config.protocolAutoDiscoverMinVirtualBalance || 1000));
+    const maxCandidates = Math.max(5, Number(config.protocolAutoDiscoverMaxCandidates || 30));
+    const head = Number(latestBlock || this.lastKnownHead || 0);
+    if (head <= 0) return;
+
+    const virtual = safeAddress(config.virtualTokenAddress);
+    if (!isAddress(virtual)) return;
+
+    let rows = virtualTransferRows;
+    if (!rows.length) {
+      try {
+        const logs = await this.rpc.getLogs({
+          address: virtual,
+          event: TRANSFER_EVENT,
+          fromBlock: BigInt(Math.max(0, head - windowBlocks)),
+          toBlock: BigInt(head),
+        });
+        rows = logs.map((log) => {
+          try {
+            const d = decodeEventLog({ abi: [TRANSFER_EVENT], topics: log.topics, data: log.data, strict: false });
+            return {
+              from_address: safeAddress(d?.args?.from),
+              to_address: safeAddress(d?.args?.to),
+              amount: String(BigInt(d?.args?.value || 0n)),
+            };
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+      } catch {
+        rows = [];
+      }
+    }
+    if (!rows.length) return;
+
+    const scoreMap = new Map();
+    const addScore = (addr, amtRaw) => {
+      const a = safeAddress(addr);
+      if (!isAddress(a) || a === zeroAddress) return;
+      if (this.specialMap.has(a)) return;
+      const prev = scoreMap.get(a) || { interactions: 0, volume_raw: 0n };
+      prev.interactions += 1;
+      prev.volume_raw += BigInt(amtRaw || '0');
+      scoreMap.set(a, prev);
+    };
+    for (const r of rows) {
+      addScore(r.from_address, r.amount);
+      addScore(r.to_address, r.amount);
+    }
+
+    const candidates = Array.from(scoreMap.entries())
+      .filter(([, v]) => v.interactions >= minInteractions)
+      .sort((a, b) => (b[1].interactions === a[1].interactions
+        ? (b[1].volume_raw > a[1].volume_raw ? 1 : -1)
+        : b[1].interactions - a[1].interactions))
+      .slice(0, maxCandidates);
+
+    const virtualMeta = await this.ensureTokenMeta(virtual);
+    const nowTs = nowSec();
+    for (const [addr, stat] of candidates) {
+      const distinctTokens = this.db.getDistinctTokenCountByAddressSince(addr, nowTs - 86400);
+      if (distinctTokens < minDistinctTokens) continue;
+      let bal = 0;
+      try {
+        const raw = await this.rpc.readContract({
+          address: virtual,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [addr],
+        });
+        bal = toFloat(String(raw || '0'), Number(virtualMeta?.decimals || 18));
+      } catch {
+        bal = 0;
+      }
+      if (!Number.isFinite(bal) || bal < minVirtualBalance) continue;
+      this._setPotentialProtocolAddress(addr, {
+        interactions: stat.interactions,
+        distinct_tokens: distinctTokens,
+        virtual_balance: bal,
+      });
+    }
   }
 
   async processTxFacts(txHashes) {
@@ -1284,6 +1400,9 @@ export class TokenTrackerTask {
     const leaderboard = Array.from(byAddress.values())
       .sort((a, b) => b.net_virtual_1m - a.net_virtual_1m)
       .slice(0, 20);
+    const potentialAddresses = Array.from(this.potentialProtocolMap.values())
+      .sort((a, b) => Number(b.interactions || 0) - Number(a.interactions || 0))
+      .slice(0, 20);
 
     return {
       protocol_inflow_1m: inflow1m,
@@ -1299,6 +1418,7 @@ export class TokenTrackerTask {
       alert,
       alert_threshold_virtual: Number(config.protocolAlertInflowVirtual || 5000),
       by_address: leaderboard,
+      potential_addresses: potentialAddresses,
       updated_at: now,
     };
   }

@@ -307,6 +307,12 @@ export class TrackerDB {
       ORDER BY timestamp DESC
     `);
 
+    this.stmtDistinctTokenCountByAddressSince = this.db.prepare(`
+      SELECT COUNT(DISTINCT token_address) AS cnt
+      FROM transfers
+      WHERE timestamp >= ? AND (from_address = ? OR to_address = ?)
+    `);
+
     this.stmtRecentTransfers = this.transferHasLogIndex
       ? this.db.prepare(`
           SELECT token_address, tx_hash, log_index, block_number, timestamp, from_address, to_address, amount
@@ -713,6 +719,11 @@ export class TrackerDB {
 
   getProtocolFlowsSince(tokenAddress, fromTs) {
     return this.stmtProtocolSince.all(tokenAddress, Number(fromTs || 0));
+  }
+
+  getDistinctTokenCountByAddressSince(address, fromTs) {
+    const row = this.stmtDistinctTokenCountByAddressSince.get(Number(fromTs || 0), String(address || '').toLowerCase(), String(address || '').toLowerCase());
+    return Number(row?.cnt || 0);
   }
 
   saveMyWallets(rows) {

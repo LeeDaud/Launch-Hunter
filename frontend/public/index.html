@@ -607,6 +607,7 @@
             <div id="launchPoolBalancePill" class="pill mono">LaunchPool Balance: -</div>
           </div>
           <div id="protocolAlertText" class="mono" style="margin-top:6px;font-size:12px;color:#9fc2df;">Alert: -</div>
+          <div id="protocolPotentialText" class="mono" style="margin-top:4px;font-size:12px;color:#9fc2df;">Potential: -</div>
           <div class="table-wrap" style="margin-top:8px;">
             <table>
               <thead>
@@ -756,6 +757,7 @@
       const sellWallBalancePill = $('sellWallBalancePill');
       const launchPoolBalancePill = $('launchPoolBalancePill');
       const protocolAlertText = $('protocolAlertText');
+      const protocolPotentialText = $('protocolPotentialText');
       const protocolBody = $('protocolBody');
       const kpi1 = $('kpi1');
       const kpi2 = $('kpi2');
@@ -1655,6 +1657,8 @@
           ? `Alert: inflow_1m ${fmt(inflow1m)} V >= threshold ${fmt(p.alert_threshold_virtual || 0)}`
           : `Alert: none (threshold ${fmt(p.alert_threshold_virtual || 0)} V)`;
         protocolAlertText.style.color = p.alert ? '#ffb5c2' : '#9fc2df';
+        const potential = p.potential_addresses || [];
+        protocolPotentialText.textContent = `Potential: ${potential.length}`;
 
         const rows = p.by_address || [];
         protocolBody.innerHTML = rows.map((r) => {
