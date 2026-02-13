@@ -3,6 +3,7 @@ import {
   UNISWAP_V2_FACTORY_ABI,
   UNISWAP_V2_PAIR_ABI,
   VIRTUALS_LAUNCHPOOL_FACTORY_ABI,
+  VIRTUALS_LAUNCHPOOL_EVENT_ABI,
   VIRTUALS_LAUNCHPOOL_PRICE_ABI,
 } from './abi.js';
 import { config } from './config.js';
@@ -10,9 +11,13 @@ import { logger } from './logger.js';
 import { nowSec, safeAddress, toFloat } from './utils.js';
 
 const POOL_CREATED_EVENTS = [
+  ...VIRTUALS_LAUNCHPOOL_EVENT_ABI,
   parseAbiItem('event PoolCreated(address indexed token, address indexed pool)'),
   parseAbiItem('event PoolCreated(address indexed token, address pool)'),
   parseAbiItem('event PoolCreated(address token, address pool)'),
+  parseAbiItem('event LaunchPoolCreated(address indexed token, address indexed pool)'),
+  parseAbiItem('event LaunchPoolCreated(address indexed token, address pool)'),
+  parseAbiItem('event LaunchPoolCreated(address token, address pool)'),
 ];
 
 const INTERNAL_EVENT_TOPICS = new Set([
@@ -281,59 +286,147 @@ export class PriceService {
     if (cached && isAddress(cached)) return cached;
 
     const factory = safeAddress(config.virtualsLaunchPoolFactoryAddress);
-    if (!isAddress(factory)) return '';
-
-    const candidates = ['getLaunchPool', 'launchPoolOf', 'pools', 'tokenToPool'];
-    for (const functionName of candidates) {
-      try {
-        const pool = safeAddress(await this.rpc.readContract({
-          address: factory,
-          abi: VIRTUALS_LAUNCHPOOL_FACTORY_ABI,
-          functionName,
-          args: [tokenAddress],
-        }));
-        if (isAddress(pool) && pool !== zeroAddress) {
-          this.launchPoolCache.set(tokenAddress, pool);
-          return pool;
-        }
-      } catch {
-        // try next selector
-      }
-    }
-
-    const span = Math.max(2000, Number(config.launchPoolScanBlocks || 30000));
+    const protocol = safeAddress(config.virtualsProtocolAddress);
     const latest = Math.max(0, Number(latestBlock || 0));
+    const span = Math.max(2000, Number(config.launchPoolScanBlocks || 30000));
     const startHint = Math.max(0, Number(tokenStartBlock || 0));
     const from = startHint > 0 ? Math.max(0, startHint - span) : Math.max(0, latest - span);
     const to = startHint > 0 ? Math.min(latest, startHint + span) : latest;
-    try {
-      const logs = await this.rpc.getLogs({
-        address: factory,
-        fromBlock: BigInt(from),
-        toBlock: BigInt(to),
-      });
-      for (const log of logs) {
-        for (const ev of POOL_CREATED_EVENTS) {
-          try {
-            const decoded = decodeEventLog({
-              abi: [ev],
-              topics: log.topics,
-              data: log.data,
-              strict: false,
+
+    const logDebug = (msg, meta) => {
+      if (config.debugTrackingLogs) logger.info(msg, meta);
+    };
+
+    const candidates = ['getLaunchPool', 'launchPoolOf', 'pools', 'tokenToPool'];
+    if (isAddress(factory)) {
+      for (const functionName of candidates) {
+        try {
+          const pool = safeAddress(await this.rpc.readContract({
+            address: factory,
+            abi: VIRTUALS_LAUNCHPOOL_FACTORY_ABI,
+            functionName,
+            args: [tokenAddress],
+          }));
+          if (isAddress(pool) && pool !== zeroAddress) {
+            this.launchPoolCache.set(tokenAddress, pool);
+            logDebug('launch pool resolved', {
+              mode: 'factory_mapping',
+              token: tokenAddress,
+              factory,
+              functionName,
+              pool,
             });
-            const createdToken = safeAddress(decoded?.args?.token ?? decoded?.args?.[0]);
-            const pool = safeAddress(decoded?.args?.pool ?? decoded?.args?.poolAddress ?? decoded?.args?.[1]);
-            if (createdToken === tokenAddress && isAddress(pool) && pool !== zeroAddress) {
-              this.launchPoolCache.set(tokenAddress, pool);
-              return pool;
-            }
-          } catch {
-            // ignore
+            return pool;
           }
+        } catch {
+          // try next selector
         }
       }
-    } catch (err) {
-      logger.warn('scan launch pool failed', { token: tokenAddress, error: String(err?.message || err) });
+    }
+
+    const scanTargets = [];
+    if (isAddress(factory)) scanTargets.push({ mode: 'factory_logs', address: factory });
+    if (isAddress(protocol) && protocol !== factory) scanTargets.push({ mode: 'protocol_logs', address: protocol });
+
+    for (const t of scanTargets) {
+      logDebug('launch pool scan start', {
+        mode: t.mode,
+        token: tokenAddress,
+        scanAddress: t.address,
+        fromBlock: from,
+        toBlock: to,
+        span,
+      });
+      const pool = await this.scanPoolCreatedLogsPaged({
+        scanAddress: t.address,
+        tokenAddress,
+        fromBlock: from,
+        toBlock: to,
+        mode: t.mode,
+      });
+      if (isAddress(pool) && pool !== zeroAddress) {
+        this.launchPoolCache.set(tokenAddress, pool);
+        logDebug('launch pool resolved', {
+          mode: t.mode,
+          token: tokenAddress,
+          scanAddress: t.address,
+          fromBlock: from,
+          toBlock: to,
+          pool,
+        });
+        return pool;
+      }
+    }
+
+    return '';
+  }
+
+  decodePoolCreatedLog(log) {
+    for (const ev of POOL_CREATED_EVENTS) {
+      try {
+        const decoded = decodeEventLog({
+          abi: [ev],
+          topics: log.topics,
+          data: log.data,
+          strict: false,
+        });
+        const args = decoded?.args || {};
+        const createdToken = safeAddress(args.token ?? args._token ?? args[0]);
+        const pool = safeAddress(args.pool ?? args.poolAddress ?? args.launchPool ?? args[1]);
+        if (isAddress(createdToken) && isAddress(pool) && pool !== zeroAddress) {
+          return { token: createdToken, pool };
+        }
+      } catch {
+        // ignore and try next event signature
+      }
+    }
+    return null;
+  }
+
+  async scanPoolCreatedLogsPaged({ scanAddress, tokenAddress, fromBlock, toBlock, mode }) {
+    if (!isAddress(scanAddress)) return '';
+    const targetToken = safeAddress(tokenAddress);
+    if (!isAddress(targetToken)) return '';
+
+    const from = Math.max(0, Number(fromBlock || 0));
+    const to = Math.max(from, Number(toBlock || 0));
+    const page = Math.max(500, Math.min(5000, Number(config.logChunkSize || 1200)));
+
+    for (let cursor = from; cursor <= to; cursor += page) {
+      const end = Math.min(to, cursor + page - 1);
+      try {
+        const logs = await this.rpc.getLogs({
+          address: scanAddress,
+          fromBlock: BigInt(cursor),
+          toBlock: BigInt(end),
+        });
+        for (const log of logs) {
+          const decoded = this.decodePoolCreatedLog(log);
+          if (!decoded) continue;
+          if (decoded.token === targetToken) {
+            if (config.debugTrackingLogs) {
+              logger.info('launch pool scan hit', {
+                mode,
+                scanAddress,
+                token: targetToken,
+                pool: decoded.pool,
+                blockNumber: Number(log.blockNumber || 0),
+                txHash: String(log.transactionHash || '').toLowerCase(),
+              });
+            }
+            return decoded.pool;
+          }
+        }
+      } catch (err) {
+        logger.warn('scan launch pool failed', {
+          mode,
+          token: targetToken,
+          scanAddress,
+          fromBlock: cursor,
+          toBlock: end,
+          error: String(err?.message || err),
+        });
+      }
     }
     return '';
   }

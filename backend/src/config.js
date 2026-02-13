@@ -51,6 +51,7 @@ export const config = {
   externalMinLiquidityUsd: envNumber('EXTERNAL_MIN_LIQUIDITY_USD', 50000),
   wethUsdFallback: envNumber('WETH_USD_FALLBACK', 0),
   virtualsLaunchPoolFactoryAddress: String(process.env.VIRTUALS_LAUNCHPOOL_FACTORY_ADDRESS || '').toLowerCase(),
+  virtualsProtocolAddress: String(process.env.VIRTUALS_PROTOCOL_ADDRESS || '0xF66DeA7b3e897cD44A5a231c61B6B4423d613259').toLowerCase(),
   launchPoolScanBlocks: envNumber('LAUNCHPOOL_SCAN_BLOCKS', 30000),
   internalPriceDecimals: envNumber('INTERNAL_PRICE_DECIMALS', 18),
   protocolAlertInflowVirtual: envNumber('PROTOCOL_ALERT_INFLOW_VIRTUAL', 5000),

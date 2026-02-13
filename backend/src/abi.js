@@ -104,6 +104,27 @@ export const VIRTUALS_LAUNCHPOOL_FACTORY_ABI = [
   },
 ];
 
+export const VIRTUALS_LAUNCHPOOL_EVENT_ABI = [
+  {
+    type: 'event',
+    name: 'PoolCreated',
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'token', type: 'address' },
+      { indexed: false, name: 'pool', type: 'address' },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'LaunchPoolCreated',
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'token', type: 'address' },
+      { indexed: false, name: 'pool', type: 'address' },
+    ],
+  },
+];
+
 export const VIRTUALS_LAUNCHPOOL_PRICE_ABI = [
   {
     type: 'function',
