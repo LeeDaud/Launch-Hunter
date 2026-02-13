@@ -7,7 +7,7 @@ git clone <YOUR_REPO_URL> app
 cd app
 npm ci
 mkdir -p backend/data
-cp .env.example .env
+touch .env
 ```
 
 Edit `.env` and set:
@@ -75,4 +75,3 @@ In Vercel project settings, set:
 - `API_BASE=https://api.your-domain.com`
 
 Then redeploy frontend.
-

@@ -17,7 +17,6 @@ This repo is now split for deployment:
 |  |- build.mjs                  # inject API_BASE into runtime-config.js
 |  |- package.json
 |  \- vercel.json
-|- .env.example
 |- DEPLOY_LINUX_PM2_NGINX.md
 |- TECHNICAL_DOC.md
 \- package.json
@@ -25,10 +24,10 @@ This repo is now split for deployment:
 
 ## Backend run
 
-1. Copy env and configure:
+1. Create `.env` and configure:
 
 ```bash
-cp .env.example .env
+touch .env
 ```
 
 Required key envs:
