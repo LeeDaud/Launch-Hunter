@@ -400,8 +400,7 @@
       .curve-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
       .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
 
-      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
-      .monitor-stack { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+      .monitor-stack { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; width: 100%; }
       .monitor-row { width: 100%; min-width: 0; }
       .monitor-row.card { display: block; }
       .table-wrap {
@@ -436,14 +435,10 @@
       .empty-text { color: #9fc2df; font-size: 12px; padding: 10px 4px; }
       .protocol-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 
-      @media (max-width: 1380px) {
-        .panel-grid { grid-template-columns: 1fr; }
-      }
       @media (max-width: 1120px) {
         .hero { grid-template-columns: 1fr; }
       }
       @media (max-width: 900px) {
-        .panel-grid { grid-template-columns: 1fr; }
         .status { grid-template-columns: 1fr; }
         .wrap { padding: 12px; }
       }
@@ -600,8 +595,8 @@
         </div>
       </div>
 
-      <div id="monitorStack" class="panel-grid monitor-stack" style="display:flex;flex-direction:column;gap:12px;width:100%;">
-        <div class="card monitor-row" style="width:100%;">
+      <div id="monitorStack" class="monitor-stack">
+        <div class="card monitor-row">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="holders_title">Holders</div>
           <div class="table-wrap">
             <table>
@@ -622,7 +617,7 @@
           </div>
         </div>
 
-        <div class="card monitor-row" style="width:100%;">
+        <div class="card monitor-row">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Special Protocol Flows</div>
           <div class="table-wrap">
             <table>
@@ -643,7 +638,7 @@
           <div id="specialFlowsEmpty" class="empty-text hidden">No special flows detected yet</div>
         </div>
 
-        <div class="card monitor-row" style="width:100%;">
+        <div class="card monitor-row">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Activity</div>
           <div class="protocol-summary-grid">
             <div id="protocol1mPill" class="pill mono">Net 1m: -</div>
