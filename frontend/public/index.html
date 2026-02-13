@@ -280,6 +280,17 @@
         padding: 9px 11px;
         border: 1px solid rgba(127, 170, 212, .15);
       }
+      .conn-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .conn-dot.connected { background: #20c977; }
+      .conn-dot.reconnecting { background: #f0ad4e; }
+      .conn-dot.disconnected { background: #e25555; }
       .hint {
         margin-top: 8px;
         padding: 8px 10px;
@@ -523,6 +534,12 @@
           <div id="tokenPill" class="pill mono">Token: -</div>
           <div id="statusPill" class="pill mono">Status: stopped | Block: -</div>
           <div id="transferPill" class="pill mono">Transfers: -</div>
+        </div>
+        <div class="status">
+          <div id="connPill" class="pill mono"><span id="connDot" class="conn-dot disconnected"></span><span id="connLabel">SSE: Disconnected</span></div>
+          <div id="healthLagPill" class="pill mono">Lag: -</div>
+          <div id="healthRatePill" class="pill mono">Events/min: -</div>
+          <div id="healthUpdatedPill" class="pill mono">Last update: -</div>
         </div>
         <div id="actionHint" class="hint" data-i18n="hint_ready">Ready.</div>
       </div>
@@ -785,6 +802,12 @@
       const tokenPill = $('tokenPill');
       const statusPill = $('statusPill');
       const transferPill = $('transferPill');
+      const connPill = $('connPill');
+      const connDot = $('connDot');
+      const connLabel = $('connLabel');
+      const healthLagPill = $('healthLagPill');
+      const healthRatePill = $('healthRatePill');
+      const healthUpdatedPill = $('healthUpdatedPill');
       const ruleState = $('ruleState');
       const ruleDesc = $('ruleDesc');
       const taxNow = $('taxNow');
@@ -860,6 +883,7 @@
       const LS_STRICT_CHAIN_MODE_KEY = 'strictChainMode';
       const LS_PRICE_PRECISION_KEY = 'pricePrecision';
       const LS_MCAP_PRECISION_KEY = 'mcapPrecision';
+      const LS_SSE_LAST_SEQ_KEY = 'sseLastSeq';
       let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
       const API_BASE = String(window.__API_BASE__ || '').trim().replace(/\/+$/, '');
       const apiUrl = (pathname) => {
@@ -868,8 +892,102 @@
         const normalized = p.startsWith('/') ? p : `/${p}`;
         return API_BASE ? `${API_BASE}${normalized}` : normalized;
       };
+      const cmpCursor = (a, b) => {
+        const ab = Number(a?.blockNumber || 0);
+        const bb = Number(b?.blockNumber || 0);
+        if (ab !== bb) return ab - bb;
+        const al = Number(a?.logIndex || 0);
+        const bl = Number(b?.logIndex || 0);
+        return al - bl;
+      };
+      const markEventKey = (txHash, logIndex) => {
+        const tx = String(txHash || '').toLowerCase();
+        if (!tx) return true;
+        const key = `${tx}:${Number(logIndex || 0)}`;
+        if (recentEventKeySet.has(key)) return false;
+        recentEventKeySet.add(key);
+        recentEventKeys.push(key);
+        if (recentEventKeys.length > 5000) {
+          const old = recentEventKeys.shift();
+          if (old) recentEventKeySet.delete(old);
+        }
+        return true;
+      };
+      const shouldApplyRealtimeEvent = (payload) => {
+        const seq = Number(payload?.seq || 0);
+        if (seq > 0 && seq <= lastSseSeq) return false;
+        if (!markEventKey(payload?.txHash, payload?.logIndex)) return false;
+        const cursor = payload?.cursor || null;
+        if (cursor && cmpCursor(cursor, lastCursor) < 0) return false;
+        if (cursor && cmpCursor(cursor, lastCursor) >= 0) {
+          lastCursor = {
+            blockNumber: Number(cursor.blockNumber || 0),
+            logIndex: Number(cursor.logIndex || 0),
+          };
+        }
+        if (seq > 0) {
+          lastSseSeq = seq;
+          localStorage.setItem(LS_SSE_LAST_SEQ_KEY, String(seq));
+        }
+        return true;
+      };
+      const renderLastUpdateAgo = () => {
+        if (!healthUpdatedPill) return;
+        if (!lastUpdateAtMs) {
+          healthUpdatedPill.textContent = 'Last update: -';
+          return;
+        }
+        const sec = Math.max(0, Math.floor((Date.now() - lastUpdateAtMs) / 1000));
+        healthUpdatedPill.textContent = `Last update: ${sec}s ago`;
+      };
+      const setSseState = (state) => {
+        sseState = String(state || 'disconnected');
+        if (!connPill || !connDot || !connLabel) return;
+        connDot.classList.remove('connected', 'reconnecting', 'disconnected');
+        if (sseState === 'connected') {
+          connDot.classList.add('connected');
+          connLabel.textContent = 'SSE: Connected';
+        } else if (sseState === 'reconnecting') {
+          connDot.classList.add('reconnecting');
+          connLabel.textContent = 'SSE: Reconnecting';
+        } else {
+          connDot.classList.add('disconnected');
+          connLabel.textContent = 'SSE: Disconnected';
+        }
+      };
+      const renderSystemHealth = (health) => {
+        if (!health) return;
+        const lagBlocks = Number(health.lagBlocks || 0);
+        const lagMs = Number(health.lagMs || 0);
+        const epm = Number(health.eventsPerMinute || 0);
+        healthLagPill.textContent = `Lag: ${lagBlocks} blk / ${lagMs} ms`;
+        healthRatePill.textContent = `Events/min: ${epm}`;
+        if (health.sseState) setSseState(health.sseState);
+        lastUpdateAtMs = Number(health.updatedAt || Date.now());
+        renderLastUpdateAgo();
+      };
+      const buildHealthFromSnapshot = (snapshot) => {
+        const ingest = snapshot?.ingest || {};
+        const latestProcessedBlock = Number(snapshot?.last_processed_block || 0);
+        const listeningBlock = Number(ingest.end || 0);
+        return {
+          listeningBlock,
+          latestProcessedBlock,
+          lagBlocks: Math.max(0, listeningBlock - latestProcessedBlock),
+          lagMs: Number(ingest.updated_at ? Math.max(0, Date.now() - Number(ingest.updated_at)) : 0),
+          eventsPerMinute: Number(ingest.log_count || 0),
+          sseState,
+          updatedAt: Date.now(),
+        };
+      };
       let eventSource = null;
       let sseRetryTimer = null;
+      let sseState = 'disconnected';
+      let lastUpdateAtMs = 0;
+      let lastSseSeq = Number(localStorage.getItem(LS_SSE_LAST_SEQ_KEY) || 0) || 0;
+      let lastCursor = { blockNumber: 0, logIndex: -1 };
+      const recentEventKeys = [];
+      const recentEventKeySet = new Set();
       let startBusy = false;
       let stopBusy = false;
       let myWallets = [];
@@ -1744,7 +1862,11 @@
         const rows = strictChainMode
           ? (snapshot?.recent_transfers_raw || []).slice(0, 80)
           : (snapshot?.recent_trades || []).slice(0, 80);
+        const dedupKeys = new Set();
         const filtered = rows.filter((r) => {
+          const key = `${String(r.tx_hash || '').toLowerCase()}:${Number(r.log_index || 0)}`;
+          if (String(r.tx_hash || '') && dedupKeys.has(key)) return false;
+          if (String(r.tx_hash || '')) dedupKeys.add(key);
           if (strictChainMode) return true;
           const side = String(r.side || 'transfer');
           return side === 'buy' || side === 'sell' || side === 'transfer';
@@ -1823,6 +1945,7 @@
         } else {
           transferPill.textContent = t('transfers_waiting');
         }
+        renderSystemHealth(buildHealthFromSnapshot(snapshot));
         setModeBtn(snapshot.metric_mode);
 
         const w = snapshot.windows || {};
@@ -2183,22 +2306,28 @@
           try { eventSource.close(); } catch {}
           eventSource = null;
         }
-        eventSource = new EventSource(apiUrl('/api/events'));
+        setSseState('reconnecting');
+        const sseUrl = apiUrl(`/api/events?since_seq=${encodeURIComponent(String(lastSseSeq || 0))}`);
+        eventSource = new EventSource(sseUrl);
         eventSource.addEventListener('connected', () => {
           console.log('SSE connected');
+          setSseState('connected');
           setHint(t('sse_connected'), 'ok');
         });
         eventSource.addEventListener('update', (ev) => {
           const p = JSON.parse(ev.data);
+          if (!shouldApplyRealtimeEvent(p)) return;
           renderSnapshot(p.snapshot);
         });
         eventSource.addEventListener('signal', (ev) => {
           const p = JSON.parse(ev.data);
+          if (!shouldApplyRealtimeEvent(p)) return;
           flashUntil = Date.now() + 10000;
           renderSnapshot(p.snapshot);
         });
         eventSource.addEventListener('protocol_update', (ev) => {
           const p = JSON.parse(ev.data);
+          if (!shouldApplyRealtimeEvent(p)) return;
           console.log('protocol_update received', p);
           latestProtocol = {
             ...p,
@@ -2209,9 +2338,15 @@
           };
           renderProtocolMonitor(latestProtocol);
         });
+        eventSource.addEventListener('system_health', (ev) => {
+          const p = JSON.parse(ev.data);
+          renderSystemHealth(p);
+        });
         eventSource.onerror = () => {
+          setSseState('reconnecting');
           statusPill.textContent = t('status_line', { status: t('status_disconnected'), block: '-' });
           transferPill.textContent = t('transfers_disconnected');
+          setHint('Data stream paused, reconnecting...', 'warn');
           setHint(t('sse_disconnected'), 'warn');
           if (lastProtocolToken) fetchProtocolMonitor(lastProtocolToken).catch(() => {});
           try { eventSource.close(); } catch {}
@@ -2228,6 +2363,8 @@
 
       initLaunchStartInput();
       applyLaunchStartChange(true);
+      setSseState('disconnected');
+      setInterval(renderLastUpdateAgo, 1000);
       const savedToken = localStorage.getItem(LS_TOKEN_KEY);
       const savedWallet = localStorage.getItem(LS_WALLET_KEY);
       const savedMyWallets = localStorage.getItem(LS_MY_WALLETS_KEY);
