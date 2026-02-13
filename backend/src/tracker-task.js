@@ -16,6 +16,26 @@ function chunkRanges(fromBlock, toBlock, span) {
   return out;
 }
 
+function pow10(n) {
+  return 10n ** BigInt(Math.max(0, Number(n || 0)));
+}
+
+function ratioToDecimalString(numerRaw, numerDecimals, denomRaw, denomDecimals, precision = 18) {
+  const num = BigInt(numerRaw || 0n);
+  const den = BigInt(denomRaw || 0n);
+  if (den <= 0n || num <= 0n) return '0';
+  const p = Math.max(2, Math.min(30, Number(precision || 18)));
+  const scaled = num * pow10(denomDecimals + p);
+  const base = den * pow10(numerDecimals);
+  if (base <= 0n) return '0';
+  const q = scaled / base;
+  const s = q.toString();
+  if (s.length <= p) return `0.${s.padStart(p, '0')}`.replace(/\.?0+$/, '') || '0';
+  const head = s.slice(0, -p);
+  const tail = s.slice(-p).replace(/0+$/, '');
+  return tail ? `${head}.${tail}` : head;
+}
+
 export class TokenTrackerTask {
   constructor({ tokenAddress, db, rpc, ruleEngine, runtimeConfig, specialAddresses, onUpdate }) {
     this.tokenAddress = safeAddress(tokenAddress);
@@ -43,6 +63,9 @@ export class TokenTrackerTask {
     this.scanQueue = Promise.resolve();
     this.pairSpot = null;
     this.pairSpotFetchedAtMs = 0;
+    this.spotPairAutoDetectLastAtMs = 0;
+    this.virtualUsd = null;
+    this.virtualUsdFetchedAtMs = 0;
     this.walletBackfillQueued = false;
     this.walletBackfillRunning = false;
     this.walletBackfillStatus = 'idle';
@@ -488,7 +511,22 @@ export class TokenTrackerTask {
   }
 
   async refreshPairSpotPrice(force = false) {
-    const pairAddress = safeAddress(this.runtimeConfig.spotPairAddress || config.spotPairAddress);
+    let pairAutoDiscovered = false;
+    let pairAddress = safeAddress(this.runtimeConfig.spotPairAddress || config.spotPairAddress);
+    if (!isAddress(pairAddress) && config.autoDiscoverSpotPair) {
+      const nowMs = Date.now();
+      const probeGap = Math.max(5000, Number(config.autoDiscoverSpotPairIntervalMs || 60000));
+      if (force || nowMs - this.spotPairAutoDetectLastAtMs >= probeGap) {
+        this.spotPairAutoDetectLastAtMs = nowMs;
+        const autoPair = await this.tryAutoDetectSpotPairAddress();
+        if (isAddress(autoPair)) {
+          this.runtimeConfig.spotPairAddress = autoPair;
+          pairAddress = autoPair;
+          pairAutoDiscovered = true;
+          logger.info('spot pair auto-discovered', { token: this.tokenAddress, pairAddress: autoPair });
+        }
+      }
+    }
     if (!isAddress(pairAddress)) return;
     const nowMs = Date.now();
     const minGap = Math.max(1000, Number(config.spotPairRefreshMs || 5000));
@@ -515,24 +553,147 @@ export class TokenTrackerTask {
       const quoteReserve = tracked === token0 ? reserve1 : reserve0;
       if (tokenReserve <= 0n || quoteReserve <= 0n) return;
 
+      const spotPriceStr = ratioToDecimalString(
+        quoteReserve,
+        Number(quoteMeta.decimals || 18),
+        tokenReserve,
+        Number(tokenMeta.decimals || 18),
+        18,
+      );
+      const spotPrice = Number(spotPriceStr);
       const tokenAmount = toFloat(tokenReserve.toString(), Number(tokenMeta.decimals || 18));
       const quoteAmount = toFloat(quoteReserve.toString(), Number(quoteMeta.decimals || 18));
       if (!Number.isFinite(tokenAmount) || !Number.isFinite(quoteAmount) || tokenAmount <= 0 || quoteAmount <= 0) return;
-
-      const spotPrice = quoteAmount / tokenAmount;
       const totalSupply = toFloat(tokenMeta.totalSupply || '0', Number(tokenMeta.decimals || 18));
       this.pairSpot = {
         source: 'pair_reserves',
         pair_address: pairAddress,
         quote_token: quoteToken,
+        pair_auto_discovered: pairAutoDiscovered,
         spot_price: spotPrice,
+        spot_price_str: spotPriceStr,
         spot_mcap: spotPrice > 0 ? spotPrice * totalSupply : 0,
         updated_at: nowSec(),
       };
       this.pairSpotFetchedAtMs = nowMs;
+      await this.refreshVirtualUsdRate(force);
     } catch (err) {
       logger.warn('pair spot refresh failed', { error: String(err?.message || err) });
     }
+  }
+
+  async refreshVirtualUsdRate(force = false) {
+    const pairAddress = safeAddress(config.virtualUsdPairAddress);
+    if (!isAddress(pairAddress)) {
+      if (Number(config.virtualUsdFallback || 0) > 0) {
+        this.virtualUsd = {
+          source: 'env_fallback',
+          usd_per_virtual: Number(config.virtualUsdFallback),
+          updated_at: nowSec(),
+        };
+      }
+      return;
+    }
+    const nowMs = Date.now();
+    const minGap = Math.max(1000, Number(config.spotPairRefreshMs || 5000));
+    if (!force && nowMs - this.virtualUsdFetchedAtMs < minGap) return;
+    try {
+      const [token0Raw, token1Raw, reserves] = await Promise.all([
+        this.rpc.readPairToken0(pairAddress),
+        this.rpc.readPairToken1(pairAddress),
+        this.rpc.readPairReserves(pairAddress),
+      ]);
+      const token0 = safeAddress(token0Raw);
+      const token1 = safeAddress(token1Raw);
+      const virtual = safeAddress(config.virtualTokenAddress);
+      if (token0 !== virtual && token1 !== virtual) return;
+
+      const quoteToken = token0 === virtual ? token1 : token0;
+      const quoteMeta = await this.ensureTokenMeta(quoteToken);
+      const virtualMeta = await this.ensureTokenMeta(virtual);
+
+      const reserve0 = BigInt(reserves?.reserve0 ?? reserves?.[0] ?? 0n);
+      const reserve1 = BigInt(reserves?.reserve1 ?? reserves?.[1] ?? 0n);
+      const virtualReserve = token0 === virtual ? reserve0 : reserve1;
+      const quoteReserve = token0 === virtual ? reserve1 : reserve0;
+      if (virtualReserve <= 0n || quoteReserve <= 0n) return;
+
+      const usdPerVirtualStr = ratioToDecimalString(
+        quoteReserve,
+        Number(quoteMeta.decimals || 18),
+        virtualReserve,
+        Number(virtualMeta.decimals || 18),
+        18,
+      );
+      const usdPerVirtual = Number(usdPerVirtualStr);
+      if (!Number.isFinite(usdPerVirtual) || usdPerVirtual <= 0) return;
+
+      this.virtualUsd = {
+        source: 'virtual_usd_pair',
+        pair_address: pairAddress,
+        quote_token: quoteToken,
+        usd_per_virtual: usdPerVirtual,
+        usd_per_virtual_str: usdPerVirtualStr,
+        updated_at: nowSec(),
+      };
+      this.virtualUsdFetchedAtMs = nowMs;
+    } catch (err) {
+      logger.warn('virtual usd refresh failed', { error: String(err?.message || err) });
+    }
+  }
+
+  async tryAutoDetectSpotPairAddress() {
+    const recentTransfers = this.db.getRecentTransfers(this.tokenAddress, 1200);
+    if (!recentTransfers.length) return '';
+
+    const flowMap = new Map();
+    const addFlow = (addr, inAmt, outAmt) => {
+      const a = safeAddress(addr);
+      if (!isAddress(a) || a === zeroAddress) return;
+      const prev = flowMap.get(a) || { in: 0n, out: 0n, count: 0 };
+      prev.in += BigInt(inAmt);
+      prev.out += BigInt(outAmt);
+      prev.count += 1;
+      flowMap.set(a, prev);
+    };
+
+    for (const t of recentTransfers) {
+      const amt = BigInt(t.amount || '0');
+      if (amt <= 0n) continue;
+      addFlow(t.to_address, amt, 0n);
+      addFlow(t.from_address, 0n, amt);
+    }
+
+    const candidates = Array.from(flowMap.entries())
+      .filter(([, v]) => v.in > 0n && v.out > 0n && v.count >= 3)
+      .map(([addr, v]) => ({
+        addr,
+        score: v.in + v.out,
+        count: v.count,
+      }))
+      .sort((a, b) => (a.score === b.score ? b.count - a.count : (b.score > a.score ? 1 : -1)))
+      .slice(0, 30);
+
+    for (const c of candidates) {
+      try {
+        const [token0Raw, token1Raw, reserves] = await Promise.all([
+          this.rpc.readPairToken0(c.addr),
+          this.rpc.readPairToken1(c.addr),
+          this.rpc.readPairReserves(c.addr),
+        ]);
+        const token0 = safeAddress(token0Raw);
+        const token1 = safeAddress(token1Raw);
+        if (token0 !== this.tokenAddress && token1 !== this.tokenAddress) continue;
+        const reserve0 = BigInt(reserves?.reserve0 ?? reserves?.[0] ?? 0n);
+        const reserve1 = BigInt(reserves?.reserve1 ?? reserves?.[1] ?? 0n);
+        const tokenReserve = token0 === this.tokenAddress ? reserve0 : reserve1;
+        if (tokenReserve <= 0n) continue;
+        return c.addr;
+      } catch {
+        // not a v2 pair or call failed
+      }
+    }
+    return '';
   }
 
   extractSpecialFromTransfers(rows) {
@@ -1101,14 +1262,20 @@ export class TokenTrackerTask {
       })()
       : 0;
 
-    let spotPrice = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
-    let spotMcap = spotPrice > 0 ? spotPrice * totalSupply : 0;
+    let spotPriceVirtual = weightedSpotPrice > 0 ? weightedSpotPrice : latestSpotPrice;
+    let spotPriceVirtualStr = spotPriceVirtual > 0 ? String(spotPriceVirtual) : '0';
+    let spotMcapVirtual = spotPriceVirtual > 0 ? spotPriceVirtual * totalSupply : 0;
     let priceSource = 'inferred_facts';
     if (this.pairSpot && Number(this.pairSpot.spot_price || 0) > 0) {
-      spotPrice = Number(this.pairSpot.spot_price || 0);
-      spotMcap = Number(this.pairSpot.spot_mcap || 0);
+      spotPriceVirtual = Number(this.pairSpot.spot_price || 0);
+      spotPriceVirtualStr = String(this.pairSpot.spot_price_str || this.pairSpot.spot_price || '0');
+      spotMcapVirtual = Number(this.pairSpot.spot_mcap || 0);
       priceSource = String(this.pairSpot.source || 'pair_reserves');
     }
+
+    const usdPerVirtual = Number(this.virtualUsd?.usd_per_virtual || config.virtualUsdFallback || 0);
+    const spotPriceUsd = usdPerVirtual > 0 ? spotPriceVirtual * usdPerVirtual : 0;
+    const spotMcapUsd = usdPerVirtual > 0 ? spotMcapVirtual * usdPerVirtual : 0;
 
     const factsByTx = new Map();
     for (const f of recentFacts) factsByTx.set(String(f.tx_hash || ''), f);
@@ -1167,11 +1334,21 @@ export class TokenTrackerTask {
     });
 
     return {
-      spot_price: spotPrice,
-      spot_mcap: spotMcap,
+      spot_price: spotPriceVirtual,
+      spot_price_str: spotPriceVirtualStr,
+      spot_mcap: spotMcapVirtual,
+      spot_price_virtual: spotPriceVirtual,
+      spot_price_virtual_str: spotPriceVirtualStr,
+      spot_mcap_virtual: spotMcapVirtual,
+      spot_price_usd: spotPriceUsd,
+      spot_mcap_usd: spotMcapUsd,
+      usd_per_virtual: usdPerVirtual > 0 ? usdPerVirtual : null,
+      usd_per_virtual_str: this.virtualUsd?.usd_per_virtual_str || (usdPerVirtual > 0 ? String(usdPerVirtual) : null),
+      usd_source: this.virtualUsd?.source || (usdPerVirtual > 0 ? 'env_fallback' : null),
       source: priceSource,
       quote_token: this.pairSpot?.quote_token || null,
       pair_address: this.pairSpot?.pair_address || null,
+      pair_auto_discovered: Boolean(this.pairSpot?.pair_auto_discovered),
       last_buy_price: latestSpotPrice,
       weighted_window_price: weightedSpotPrice,
       source_trade_count: calcOn.length,
@@ -1265,10 +1442,20 @@ export class TokenTrackerTask {
       curves,
       price: {
         spot_price: priceView.spot_price,
+        spot_price_str: priceView.spot_price_str,
+        spot_price_virtual: priceView.spot_price_virtual,
+        spot_price_virtual_str: priceView.spot_price_virtual_str,
+        spot_price_usd: priceView.spot_price_usd,
         spot_mcap: priceView.spot_mcap,
+        spot_mcap_virtual: priceView.spot_mcap_virtual,
+        spot_mcap_usd: priceView.spot_mcap_usd,
+        usd_per_virtual: priceView.usd_per_virtual,
+        usd_per_virtual_str: priceView.usd_per_virtual_str,
+        usd_source: priceView.usd_source,
         source: priceView.source,
         quote_token: priceView.quote_token,
         pair_address: priceView.pair_address,
+        pair_auto_discovered: priceView.pair_auto_discovered,
         last_buy_price: priceView.last_buy_price,
         weighted_window_price: priceView.weighted_window_price,
         source_trade_count: priceView.source_trade_count,

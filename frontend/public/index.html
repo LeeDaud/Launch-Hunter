@@ -522,12 +522,16 @@
           <div style="font-size:13px;color:#c3e5ff;">Realtime Price & Recent Trades</div>
           <div class="row">
             <button id="strictChainModeBtn" class="btn btn-light" type="button">Strict Chain: ON</button>
+            <input id="pricePrecisionInput" class="input mono" style="width:110px" placeholder="Price Dec" value="8" />
+            <input id="mcapPrecisionInput" class="input mono" style="width:110px" placeholder="MCAP Dec" value="2" />
             <div id="spotMetaText" class="mono" style="font-size:12px;color:#9fc2df;">-</div>
           </div>
         </div>
         <div class="status" style="margin-top:0;">
-          <div id="spotPricePill" class="pill mono">Spot Price: -</div>
-          <div id="spotMcapPill" class="pill mono">Spot MCAP: -</div>
+          <div id="spotPricePill" class="pill mono">Spot Price /virtual: -</div>
+          <div id="spotMcapPill" class="pill mono">Spot MCAP /virtual: -</div>
+          <div id="spotPriceUsdPill" class="pill mono">Spot Price /usd: -</div>
+          <div id="spotMcapUsdPill" class="pill mono">Spot MCAP /usd: -</div>
         </div>
         <div class="table-wrap" style="max-height:34vh; margin-top:8px;">
           <table>
@@ -726,6 +730,10 @@
       const strictChainModeBtn = $('strictChainModeBtn');
       const spotPricePill = $('spotPricePill');
       const spotMcapPill = $('spotMcapPill');
+      const spotPriceUsdPill = $('spotPriceUsdPill');
+      const spotMcapUsdPill = $('spotMcapUsdPill');
+      const pricePrecisionInput = $('pricePrecisionInput');
+      const mcapPrecisionInput = $('mcapPrecisionInput');
       const spotMetaText = $('spotMetaText');
       const recentTradeBody = $('recentTradeBody');
       const explorerAddressInput = $('explorerAddressInput');
@@ -767,6 +775,8 @@
       const LS_LANG_KEY = 'uiLang';
       const LS_EXPLORER_OPTS_KEY = 'explorerTokentxOptions';
       const LS_STRICT_CHAIN_MODE_KEY = 'strictChainMode';
+      const LS_PRICE_PRECISION_KEY = 'pricePrecision';
+      const LS_MCAP_PRECISION_KEY = 'mcapPrecision';
       let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
       const API_BASE = String(window.__API_BASE__ || '').trim().replace(/\/+$/, '');
       const apiUrl = (pathname) => {
@@ -1343,6 +1353,19 @@
         return `${sign}${x.toFixed(4)}`;
       }
 
+      function clampPrecision(v, fallback, max = 12) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return fallback;
+        const i = Math.floor(n);
+        return Math.max(0, Math.min(max, i));
+      }
+
+      function fmtFixed(n, digits = 8) {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return '-';
+        return v.toFixed(clampPrecision(digits, 8, 18));
+      }
+
       function isHexAddress(v) {
         return /^0x[a-fA-F0-9]{40}$/.test(String(v || '').trim());
       }
@@ -1585,13 +1608,25 @@
           strictChainModeBtn.classList.toggle('active', strictChainMode);
         }
         const p = snapshot?.price || {};
-        const spotPrice = Number(p.spot_price || 0);
-        const spotMcap = Number(p.spot_mcap || 0);
-        spotPricePill.textContent = `Spot Price: ${fmt(spotPrice)}`;
-        spotMcapPill.textContent = `Spot MCAP: ${fmt(spotMcap)}`;
-        spotMetaText.textContent = strictChainMode
-          ? `strict=true | rows=${Number((snapshot?.recent_transfers_raw || []).length || 0)}`
-          : `source=${String(p.source || 'inferred')} | window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+        const priceDigits = clampPrecision(pricePrecisionInput?.value, 8, 18);
+        const mcapDigits = clampPrecision(mcapPrecisionInput?.value, 2, 8);
+        const spotPriceVirtual = Number(p.spot_price_virtual ?? p.spot_price ?? 0);
+        const spotMcapVirtual = Number(p.spot_mcap_virtual ?? p.spot_mcap ?? 0);
+        const spotPriceUsd = Number(p.spot_price_usd || 0);
+        const spotMcapUsd = Number(p.spot_mcap_usd || 0);
+        spotPricePill.textContent = `Spot Price /virtual: ${fmtFixed(spotPriceVirtual, priceDigits)}`;
+        spotMcapPill.textContent = `Spot MCAP /virtual: ${fmtFixed(spotMcapVirtual, mcapDigits)}`;
+        spotPriceUsdPill.textContent = `Spot Price /usd: ${fmtFixed(spotPriceUsd, priceDigits)}`;
+        spotMcapUsdPill.textContent = `Spot MCAP /usd: ${fmtFixed(spotMcapUsd, mcapDigits)}`;
+
+        const pairAddr = String(p.pair_address || '');
+        const pairTag = pairAddr ? shortAddr(pairAddr) : '-';
+        const pairMode = p.pair_auto_discovered ? 'auto' : (pairAddr ? 'manual' : 'n/a');
+        const usdPerVirtual = Number(p.usd_per_virtual || 0);
+        const usdRateText = Number.isFinite(usdPerVirtual) && usdPerVirtual > 0 ? fmtFixed(usdPerVirtual, priceDigits) : '-';
+        const strictText = strictChainMode ? `strict=true | rows=${Number((snapshot?.recent_transfers_raw || []).length || 0)}` : null;
+        const streamText = `source=${String(p.source || 'inferred')} | window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+        spotMetaText.textContent = `${strictText ? `${strictText} | ` : ''}${streamText} | pair=${pairTag}(${pairMode}) | 1 virtual=${usdRateText} usd`;
 
         const rows = strictChainMode
           ? (snapshot?.recent_transfers_raw || []).slice(0, 80)
@@ -1878,6 +1913,18 @@
         if (latest) renderRealtimePriceAndTrades(latest);
       });
 
+      [pricePrecisionInput, mcapPrecisionInput].forEach((el) => {
+        el?.addEventListener('input', () => {
+          const priceDigits = clampPrecision(pricePrecisionInput?.value, 8, 18);
+          const mcapDigits = clampPrecision(mcapPrecisionInput?.value, 2, 8);
+          if (pricePrecisionInput) pricePrecisionInput.value = String(priceDigits);
+          if (mcapPrecisionInput) mcapPrecisionInput.value = String(mcapDigits);
+          localStorage.setItem(LS_PRICE_PRECISION_KEY, String(priceDigits));
+          localStorage.setItem(LS_MCAP_PRECISION_KEY, String(mcapDigits));
+          if (latest) renderRealtimePriceAndTrades(latest);
+        });
+      });
+
       [walletInput, sellTaxInput, myWalletFromBlockInput, tokenStartBlockInput, spotPairInput].forEach((el) => {
         el.addEventListener('change', async () => {
           try {
@@ -2041,11 +2088,15 @@
       const savedFromBlock = localStorage.getItem(LS_MY_FROM_BLOCK_KEY);
       const savedTokenStartBlock = localStorage.getItem(LS_TOKEN_START_BLOCK_KEY);
       const savedSpotPair = localStorage.getItem(LS_SPOT_PAIR_KEY);
+      const savedPricePrecision = localStorage.getItem(LS_PRICE_PRECISION_KEY);
+      const savedMcapPrecision = localStorage.getItem(LS_MCAP_PRECISION_KEY);
       if (savedToken) tokenInput.value = savedToken;
       if (savedWallet) walletInput.value = savedWallet;
       if (savedFromBlock) myWalletFromBlockInput.value = savedFromBlock;
       if (savedTokenStartBlock) tokenStartBlockInput.value = savedTokenStartBlock;
       if (savedSpotPair) spotPairInput.value = savedSpotPair;
+      if (pricePrecisionInput) pricePrecisionInput.value = String(clampPrecision(savedPricePrecision, 8, 18));
+      if (mcapPrecisionInput) mcapPrecisionInput.value = String(clampPrecision(savedMcapPrecision, 2, 8));
       if (savedMyWallets) {
         try {
           myWallets = JSON.parse(savedMyWallets) || [];

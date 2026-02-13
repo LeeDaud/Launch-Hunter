@@ -44,6 +44,10 @@ export const config = {
   baseWsRpc: process.env.BASE_WS_RPC || '',
   spotPairAddress: String(process.env.SPOT_PAIR_ADDRESS || '').toLowerCase(),
   spotPairRefreshMs: envNumber('SPOT_PAIR_REFRESH_MS', 5000),
+  autoDiscoverSpotPair: envBool('AUTO_DISCOVER_SPOT_PAIR', true),
+  autoDiscoverSpotPairIntervalMs: envNumber('AUTO_DISCOVER_SPOT_PAIR_INTERVAL_MS', 60000),
+  virtualUsdPairAddress: String(process.env.VIRTUAL_USD_PAIR_ADDRESS || '').toLowerCase(),
+  virtualUsdFallback: envNumber('VIRTUAL_USD_FALLBACK', 0),
   virtualTokenAddress: String(
     process.env.VIRTUAL_CA
     || process.env.VIRTUAL_TOKEN_ADDRESS
