@@ -620,7 +620,28 @@
         </div>
 
         <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Monitor</div>
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Special Protocol Flows</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Category</th>
+                  <th>5m V</th>
+                  <th>1h V</th>
+                  <th>Cum V</th>
+                  <th>5m T</th>
+                  <th>Cum T</th>
+                </tr>
+              </thead>
+              <tbody id="specialBody"></tbody>
+            </table>
+          </div>
+          <div id="specialFlowsEmpty" class="empty-text hidden">No special flows detected yet</div>
+        </div>
+
+        <div class="card">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Activity</div>
           <div class="protocol-summary-grid">
             <div id="protocol1mPill" class="pill mono">Net 1m: -</div>
             <div id="protocol5mPill" class="pill mono">Net 5m: -</div>
@@ -630,65 +651,22 @@
             <div id="protocolPotentialText" class="pill mono">Potential: -</div>
           </div>
           <div id="protocolAlertText" class="mono" style="margin-top:8px;font-size:12px;color:#9fc2df;">Alert: -</div>
-          <div class="proto-tabs">
-            <button id="protoTabSummaryBtn" class="proto-tab-btn active" type="button">Summary</button>
-            <button id="protoTabFlowsBtn" class="proto-tab-btn" type="button">Special Flows</button>
-            <button id="protoTabAddressesBtn" class="proto-tab-btn" type="button">Addresses</button>
+          <div class="table-wrap" style="margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Type</th>
+                  <th>Net 1m V</th>
+                  <th>Net 5m V</th>
+                  <th>Net 5m T</th>
+                  <th>Interactions 5m</th>
+                </tr>
+              </thead>
+              <tbody id="protocolBody"></tbody>
+            </table>
           </div>
-          <div id="protoPaneSummary" class="proto-pane">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Address</th>
-                    <th>Type</th>
-                    <th>Net 1m V</th>
-                    <th>Net 5m V</th>
-                    <th>Net 5m T</th>
-                    <th>Interactions 5m</th>
-                  </tr>
-                </thead>
-                <tbody id="protocolSummaryBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div id="protoPaneFlows" class="proto-pane hidden">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Label</th>
-                    <th>Category</th>
-                    <th>5m V</th>
-                    <th>1h V</th>
-                    <th>Cum V</th>
-                    <th>5m T</th>
-                    <th>Cum T</th>
-                  </tr>
-                </thead>
-                <tbody id="protocolFlowsBody"></tbody>
-              </table>
-            </div>
-            <div id="protocolFlowsEmpty" class="empty-text hidden">No special flows detected yet</div>
-          </div>
-          <div id="protoPaneAddresses" class="proto-pane hidden">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Address</th>
-                    <th>Type</th>
-                    <th>Net 1m V</th>
-                    <th>Net 5m V</th>
-                    <th>Net 5m T</th>
-                    <th>Interactions 5m</th>
-                  </tr>
-                </thead>
-                <tbody id="protocolAddressesBody"></tbody>
-              </table>
-            </div>
-            <div id="protocolAddressesEmpty" class="empty-text hidden">No protocol addresses yet</div>
-          </div>
+          <div id="protocolAddressesEmpty" class="empty-text hidden">No protocol addresses yet</div>
         </div>
       </div>
 
@@ -816,6 +794,8 @@
       const bars = $('bars');
       const curveSvg = $('curveSvg');
       const holderBody = $('holderBody');
+      const specialBody = $('specialBody');
+      const specialFlowsEmpty = $('specialFlowsEmpty');
       const protocol1mPill = $('protocol1mPill');
       const protocol5mPill = $('protocol5mPill');
       const protocolExecPill = $('protocolExecPill');
@@ -823,17 +803,8 @@
       const launchPoolBalancePill = $('launchPoolBalancePill');
       const protocolAlertText = $('protocolAlertText');
       const protocolPotentialText = $('protocolPotentialText');
-      const protocolSummaryBody = $('protocolSummaryBody');
-      const protocolFlowsBody = $('protocolFlowsBody');
-      const protocolAddressesBody = $('protocolAddressesBody');
-      const protocolFlowsEmpty = $('protocolFlowsEmpty');
+      const protocolBody = $('protocolBody');
       const protocolAddressesEmpty = $('protocolAddressesEmpty');
-      const protoTabSummaryBtn = $('protoTabSummaryBtn');
-      const protoTabFlowsBtn = $('protoTabFlowsBtn');
-      const protoTabAddressesBtn = $('protoTabAddressesBtn');
-      const protoPaneSummary = $('protoPaneSummary');
-      const protoPaneFlows = $('protoPaneFlows');
-      const protoPaneAddresses = $('protoPaneAddresses');
       const kpi1 = $('kpi1');
       const kpi2 = $('kpi2');
       const kpi5 = $('kpi5');
@@ -1698,16 +1669,6 @@
         }).join('');
       }
 
-      function setProtocolTab(name) {
-        const tab = String(name || 'summary');
-        protoTabSummaryBtn?.classList.toggle('active', tab === 'summary');
-        protoTabFlowsBtn?.classList.toggle('active', tab === 'flows');
-        protoTabAddressesBtn?.classList.toggle('active', tab === 'addresses');
-        protoPaneSummary?.classList.toggle('hidden', tab !== 'summary');
-        protoPaneFlows?.classList.toggle('hidden', tab !== 'flows');
-        protoPaneAddresses?.classList.toggle('hidden', tab !== 'addresses');
-      }
-
       function renderProtocolMonitor(payload) {
         const p = payload || {};
         const s = p.summary || {};
@@ -1736,11 +1697,10 @@
           `;
         }).join('');
 
-        protocolSummaryBody.innerHTML = renderAddrRows(addresses.slice(0, 12));
-        protocolAddressesBody.innerHTML = renderAddrRows(addresses);
+        protocolBody.innerHTML = renderAddrRows(addresses);
         protocolAddressesEmpty.classList.toggle('hidden', addresses.length > 0);
 
-        protocolFlowsBody.innerHTML = flows.map((r) => {
+        specialBody.innerHTML = flows.map((r) => {
           const c = Number(r.v5m || 0) >= 0 ? 'good' : 'bad';
           return `
             <tr>
@@ -1754,7 +1714,7 @@
             </tr>
           `;
         }).join('');
-        protocolFlowsEmpty.classList.toggle('hidden', flows.length > 0);
+        specialFlowsEmpty.classList.toggle('hidden', flows.length > 0);
       }
 
       function renderRealtimePriceAndTrades(snapshot) {
@@ -2088,10 +2048,6 @@
         if (latest) renderRealtimePriceAndTrades(latest);
       });
 
-      protoTabSummaryBtn?.addEventListener('click', () => setProtocolTab('summary'));
-      protoTabFlowsBtn?.addEventListener('click', () => setProtocolTab('flows'));
-      protoTabAddressesBtn?.addEventListener('click', () => setProtocolTab('addresses'));
-
       [pricePrecisionInput, mcapPrecisionInput].forEach((el) => {
         el?.addEventListener('input', () => {
           const priceDigits = clampPrecision(pricePrecisionInput?.value, 8, 18);
@@ -2319,7 +2275,6 @@
       }
       applyExplorerOptions(explorerSaved, false);
       setExplorerStatus('ready');
-      setProtocolTab('summary');
       connectEvents();
 
       fetch(apiUrl('/api/status')).then((r) => r.json()).then((d) => {
