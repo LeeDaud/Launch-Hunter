@@ -1,4 +1,4 @@
-ï»¿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
     <head>
     <meta charset="UTF-8" />
@@ -15,8 +15,8 @@
     <style>
       :root {
         --bg: #070f1a;
-        --card: #111f33;
-        --card2: #13263d;
+        --card: #101e31;
+        --card2: #15293f;
         --text: #e6f0ff;
         --muted: #8ea5bf;
         --accent: #65c2ff;
@@ -35,16 +35,29 @@
         letter-spacing: .01em;
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
-        background: radial-gradient(1200px 500px at 15% -20%, #1a3d60 0%, #0d1a2a 45%, var(--bg) 100%);
+        background:
+          radial-gradient(1200px 500px at 12% -18%, #1a3d60 0%, #0d1a2a 45%, var(--bg) 100%),
+          linear-gradient(180deg, rgba(10,16,26,.96), rgba(7,12,19,.98));
+        min-height: 100vh;
       }
-      .wrap { max-width: 1400px; margin: 0 auto; padding: 16px; }
+      .wrap { max-width: 1680px; margin: 0 auto; padding: 18px; }
       .card {
-        background: linear-gradient(180deg, rgba(20,40,62,.92), rgba(15,30,48,.92));
-        border-radius: 12px;
-        padding: 12px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.22);
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(180deg, rgba(20,40,62,.9), rgba(14,28,45,.92));
+        border: 1px solid rgba(124, 162, 198, .18);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 14px 34px rgba(0,0,0,.26);
       }
-      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(140deg, rgba(111, 183, 245, .06), transparent 35%, transparent 65%, rgba(111, 183, 245, .04));
+      }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
       .topline {
         display: flex;
         justify-content: flex-end;
@@ -255,16 +268,17 @@
         color: #c6ddf2;
       }
       .status {
-        margin-top: 8px;
+        margin-top: 10px;
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
       }
       .pill {
-        background: rgba(101,194,255,.12);
+        background: rgba(101,194,255,.11);
         color: #c8e8ff;
-        border-radius: 8px;
-        padding: 8px 10px;
+        border-radius: 10px;
+        padding: 9px 11px;
+        border: 1px solid rgba(127, 170, 212, .15);
       }
       .hint {
         margin-top: 8px;
@@ -355,10 +369,10 @@
       .status-chip.error { background: rgba(255,94,120,.16); color: #ffc3cf; }
 
       .hero {
-        margin-top: 10px;
+        margin-top: 12px;
         display: grid;
-        grid-template-columns: 1fr 1.2fr .8fr;
-        gap: 10px;
+        grid-template-columns: repeat(3, minmax(280px, 1fr));
+        gap: 12px;
       }
 
       .kpis {
@@ -366,7 +380,7 @@
         grid-template-columns: repeat(2, minmax(120px, 1fr));
         gap: 8px;
       }
-      .kpi { background: rgba(12,24,38,.8); border-radius: 8px; padding: 8px; }
+      .kpi { background: rgba(10,22,36,.74); border-radius: 10px; padding: 10px; border: 1px solid rgba(127,170,212,.14); }
       .kpi .k { font-size: 12px; color: var(--muted); }
       .kpi .v { margin-top: 3px; font-size: 18px; font-weight: 700; }
 
@@ -382,23 +396,56 @@
       .bars { margin-top: 8px; height: 72px; display: grid; grid-template-columns: repeat(10,1fr); gap: 6px; align-items: end; }
       .bar { background: linear-gradient(180deg, #86d4ff, #3f7fb8); border-radius: 4px 4px 2px 2px; min-height: 4px; }
 
-      .curve-wrap { height: 240px; margin-top: 8px; background: rgba(12,24,38,.7); border-radius: 10px; padding: 8px; }
+      .curve-wrap { height: 240px; margin-top: 8px; background: rgba(10,22,36,.74); border-radius: 10px; padding: 8px; border: 1px solid rgba(127,170,212,.14); }
       .curve-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
       .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
 
-      .panel-grid { margin-top: 10px; display: grid; grid-template-columns: 1.2fr .8fr; gap: 10px; }
-      .table-wrap { max-height: 52vh; overflow: auto; }
+      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+      .monitor-stack { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+      .monitor-row { width: 100%; min-width: 0; }
+      .monitor-row.card { display: block; }
+      .table-wrap {
+        max-height: 52vh;
+        overflow: auto;
+        border-radius: 10px;
+        border: 1px solid rgba(127,170,212,.14);
+        background: rgba(8,18,30,.52);
+      }
       table { width: 100%; border-collapse: collapse; font-size: 12px; }
       th, td { padding: 8px 6px; text-align: left; }
       th { color: #abd3ef; }
       tbody tr { border-top: 1px solid rgba(130,160,190,.14); }
       .good { color: var(--ok); }
       .bad { color: #ff8da0; }
+      .proto-tabs { display: flex; gap: 8px; margin-top: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+      .proto-tab-btn {
+        border: 1px solid rgba(127,170,212,.2);
+        background: rgba(20,37,58,.72);
+        color: #c7e4fb;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .proto-tab-btn.active {
+        background: rgba(101,194,255,.22);
+        color: #e9f6ff;
+        border-color: rgba(101,194,255,.5);
+      }
+      .proto-pane.hidden { display: none; }
+      .empty-text { color: #9fc2df; font-size: 12px; padding: 10px 4px; }
+      .protocol-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 
-      @media (max-width: 1100px) {
+      @media (max-width: 1380px) {
+        .panel-grid { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 1120px) {
         .hero { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 900px) {
         .panel-grid { grid-template-columns: 1fr; }
         .status { grid-template-columns: 1fr; }
+        .wrap { padding: 12px; }
       }
     </style>
   </head>
@@ -407,7 +454,7 @@
       <div class="card">
         <div class="topline">
           <div class="lang-switch" role="group" aria-label="language switch">
-            <button id="langZhBtn" class="lang-btn active" type="button">ä¸­</button>
+            <button id="langZhBtn" class="lang-btn active" type="button">ÖĞ</button>
             <button id="langEnBtn" class="lang-btn" type="button">EN</button>
           </div>
         </div>
@@ -421,8 +468,8 @@
           </div>
           <input id="walletInput" class="input" style="width:220px" placeholder="My Wallet (0x...)" data-i18n-ph="ph_wallet" />
           <input id="sellTaxInput" class="input" style="width:110px" placeholder="SellTax %" value="1" data-i18n-ph="ph_sell_tax" />
-          <button id="startBtn" class="btn" data-i18n="start_track">å¼€å§‹è¿½è¸ª</button>
-          <button id="stopBtn" class="btn" data-i18n="stop_track">åœæ­¢</button>
+          <button id="startBtn" class="btn" data-i18n="start_track">¿ªÊ¼×·×Ù</button>
+          <button id="stopBtn" class="btn" data-i18n="stop_track">Í£Ö¹</button>
           <button id="modeToken" class="btn active" data-mode="token_received" data-i18n="mode_token">Token</button>
           <button id="modeVirtual" class="btn" data-mode="virtual_spent" data-i18n="mode_virtual">Virtual</button>
         </div>
@@ -430,6 +477,8 @@
           <textarea id="myWalletsInput" class="input wallet-textarea" placeholder="Add wallet addresses (one per line)" data-i18n-ph="ph_wallets"></textarea>
           <div class="wallet-actions">
             <input id="myWalletFromBlockInput" class="input" style="width:170px" placeholder="My FromBlock" data-i18n-ph="ph_from_block" />
+            <input id="tokenStartBlockInput" class="input" style="width:170px" placeholder="Token StartBlock" />
+            <input id="spotPairInput" class="input mono" style="width:260px" placeholder="Spot Pair (0x...)" />
             <button id="myWalletApplyBtn" class="btn btn-light" type="button" data-i18n="add_wallets">Add Wallets</button>
             <button id="myWalletClearBtn" class="btn btn-light" type="button" data-i18n="clear_wallets">Clear Wallets</button>
           </div>
@@ -457,7 +506,23 @@
               <tbody id="myWalletTotalBody"></tbody>
             </table>
           </div>
-
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="th_address">Address</th>
+                  <th data-i18n="th_balance">Balance</th>
+                  <th data-i18n="th_spent_v">Spent V</th>
+                  <th data-i18n="th_recv_t">Recv T</th>
+                  <th data-i18n="th_cost">Cost</th>
+                  <th data-i18n="th_eff_cost">Eff Cost</th>
+                  <th data-i18n="th_be_mcap">BE MCAP</th>
+                  <th data-i18n="th_last_active">Last Active</th>
+                </tr>
+              </thead>
+              <tbody id="myWalletBody"></tbody>
+            </table>
+          </div>
         </div>
         <div class="status">
           <div id="tokenPill" class="pill mono">Token: -</div>
@@ -469,10 +534,10 @@
 
       <div class="hero">
         <div class="card">
-          <div class="rule-title" data-i18n="rule_title">è§„åˆ™çŠ¶æ€</div>
-          <div id="ruleState" class="rule-state s-wait">ç­‰å¾…ä¸­</div>
-          <div id="ruleDesc" style="font-size:12px;color:#9fb8ce;margin-top:5px;">ç­‰å¾…è¿ç»­ä¸¤åˆ†é’Ÿçªç ´ 3000 / 6000</div>
-          <div id="taxNow" style="margin-top:8px;font-size:13px;color:#c7e6ff;">å½“å‰ä¹°å…¥ç¨ç‡: 1%</div>
+          <div class="rule-title" data-i18n="rule_title">¹æÔò×´Ì¬</div>
+          <div id="ruleState" class="rule-state s-wait">µÈ´ıÖĞ</div>
+          <div id="ruleDesc" style="font-size:12px;color:#9fb8ce;margin-top:5px;">µÈ´ıÁ¬ĞøÁ½·ÖÖÓÍ»ÆÆ 3000 / 6000</div>
+          <div id="taxNow" style="margin-top:8px;font-size:13px;color:#c7e6ff;">µ±Ç°ÂòÈëË°ÂÊ: 1%</div>
           <div id="pairNow" class="mono" style="margin-top:4px;font-size:12px;color:#aac7dd;">Pair: -</div>
           <div class="bars" id="bars"></div>
         </div>
@@ -499,8 +564,44 @@
         </div>
       </div>
 
-      <div class="panel-grid">
-        <div class="card">
+      <div class="card" style="margin-top:10px;">
+        <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+          <div style="font-size:13px;color:#c3e5ff;">Realtime Price & Recent Trades</div>
+          <div class="row">
+            <button id="strictChainModeBtn" class="btn btn-light" type="button">Strict Chain: ON</button>
+            <input id="pricePrecisionInput" class="input mono" style="width:110px" placeholder="Price Dec" value="8" />
+            <input id="mcapPrecisionInput" class="input mono" style="width:110px" placeholder="MCAP Dec" value="2" />
+            <div id="spotMetaText" class="mono" style="font-size:12px;color:#9fc2df;">-</div>
+          </div>
+        </div>
+        <div class="status" style="margin-top:0;">
+          <div id="spotPricePill" class="pill mono">Spot Price /virtual: -</div>
+          <div id="spotMcapPill" class="pill mono">Spot MCAP /virtual: -</div>
+          <div id="spotPriceUsdPill" class="pill mono">Spot Price /usd: -</div>
+          <div id="spotMcapUsdPill" class="pill mono">Spot MCAP /usd: -</div>
+        </div>
+        <div class="table-wrap" style="max-height:34vh; margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Block/Log</th>
+                <th>Side</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Amount T</th>
+                <th>Amount Raw</th>
+                <th>Price</th>
+                <th>Hash</th>
+              </tr>
+            </thead>
+            <tbody id="recentTradeBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="monitorStack" class="panel-grid monitor-stack" style="display:flex;flex-direction:column;gap:12px;width:100%;">
+        <div class="card monitor-row" style="width:100%;">
           <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="holders_title">Holders</div>
           <div class="table-wrap">
             <table>
@@ -511,7 +612,7 @@
                   <th data-i18n="th_cum_in">Cum In</th>
                   <th data-i18n="th_cum_out">Cum Out</th>
                   <th data-i18n="th_share">Share%</th>
-                  <th>Î”5m</th>
+                  <th>¦¤5m</th>
                   <th data-i18n="th_cost">Cost</th>
                   <th data-i18n="th_be_mcap">BE MCAP</th>
                 </tr>
@@ -521,14 +622,14 @@
           </div>
         </div>
 
-        <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="special_title">Special Protocol Flows</div>
+        <div class="card monitor-row" style="width:100%;">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Special Protocol Flows</div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th data-i18n="th_label">Label</th>
-                  <th data-i18n="th_category">Category</th>
+                  <th>Label</th>
+                  <th>Category</th>
                   <th>5m V</th>
                   <th>1h V</th>
                   <th>Cum V</th>
@@ -539,6 +640,73 @@
               <tbody id="specialBody"></tbody>
             </table>
           </div>
+          <div id="specialFlowsEmpty" class="empty-text hidden">No special flows detected yet</div>
+        </div>
+
+        <div class="card monitor-row" style="width:100%;">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Activity</div>
+          <div class="protocol-summary-grid">
+            <div id="protocol1mPill" class="pill mono">Net 1m: -</div>
+            <div id="protocol5mPill" class="pill mono">Net 5m: -</div>
+            <div id="protocolExecPill" class="pill mono">Executor 5m: -</div>
+            <div id="sellWallBalancePill" class="pill mono">Sell Wall Balance: -</div>
+            <div id="launchPoolBalancePill" class="pill mono">LaunchPool Balance: -</div>
+            <div id="protocolPotentialText" class="pill mono">Potential: -</div>
+          </div>
+          <div id="protocolAlertText" class="mono" style="margin-top:8px;font-size:12px;color:#9fc2df;">Alert: -</div>
+          <div class="table-wrap" style="margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Type</th>
+                  <th>Net 1m V</th>
+                  <th>Net 5m V</th>
+                  <th>Net 5m T</th>
+                  <th>Interactions 5m</th>
+                </tr>
+              </thead>
+              <tbody id="protocolBody"></tbody>
+            </table>
+          </div>
+          <div id="protocolAddressesEmpty" class="empty-text hidden">No protocol addresses yet</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:10px;">
+        <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Explorer TokenTx</div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="explorerAddressInput" class="input mono grow" placeholder="address (wallet or contract, required)" />
+          <input id="explorerContractInput" class="input mono grow" placeholder="contractaddress (token, optional)" />
+          <input id="explorerChainIdInput" class="input mono" style="width:100px" value="8453" placeholder="chainid" />
+          <select id="explorerSortInput" class="input" style="width:100px">
+            <option value="desc" selected>desc</option>
+            <option value="asc">asc</option>
+          </select>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="explorerStartBlockInput" class="input mono" style="width:140px" value="0" placeholder="startblock" />
+          <input id="explorerEndBlockInput" class="input mono" style="width:140px" value="99999999" placeholder="endblock" />
+          <input id="explorerPageInput" class="input mono" style="width:100px" value="1" placeholder="page" />
+          <input id="explorerOffsetInput" class="input mono" style="width:100px" value="50" placeholder="offset" />
+          <button id="explorerQueryBtn" class="btn" type="button">Query</button>
+          <button id="explorerResetBtn" class="btn btn-light" type="button">Reset</button>
+          <span id="explorerStatusText" class="mono" style="font-size:12px;color:#9fc2df;"></span>
+        </div>
+        <div class="table-wrap" style="max-height:34vh;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Hash</th>
+                <th>Token</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody id="explorerTxBody"></tbody>
+          </table>
         </div>
       </div>
 
@@ -586,6 +754,7 @@
       </div>
     </div>
 
+    <script src="/runtime-config.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
       const tokenInput = $('tokenInput');
@@ -599,6 +768,8 @@
       const actionHint = $('actionHint');
       const myWalletsInput = $('myWalletsInput');
       const myWalletFromBlockInput = $('myWalletFromBlockInput');
+      const tokenStartBlockInput = $('tokenStartBlockInput');
+      const spotPairInput = $('spotPairInput');
       const myWalletApplyBtn = $('myWalletApplyBtn');
       const myWalletClearBtn = $('myWalletClearBtn');
       const langZhBtn = $('langZhBtn');
@@ -627,14 +798,46 @@
       const curveSvg = $('curveSvg');
       const holderBody = $('holderBody');
       const specialBody = $('specialBody');
+      const specialFlowsEmpty = $('specialFlowsEmpty');
+      const protocol1mPill = $('protocol1mPill');
+      const protocol5mPill = $('protocol5mPill');
+      const protocolExecPill = $('protocolExecPill');
+      const sellWallBalancePill = $('sellWallBalancePill');
+      const launchPoolBalancePill = $('launchPoolBalancePill');
+      const protocolAlertText = $('protocolAlertText');
+      const protocolPotentialText = $('protocolPotentialText');
+      const protocolBody = $('protocolBody');
+      const protocolAddressesEmpty = $('protocolAddressesEmpty');
       const kpi1 = $('kpi1');
       const kpi2 = $('kpi2');
       const kpi5 = $('kpi5');
       const kpiCd = $('kpiCd');
       const kpiRmv = $('kpiRmv');
       const kpiCost = $('kpiCost');
+      const strictChainModeBtn = $('strictChainModeBtn');
+      const spotPricePill = $('spotPricePill');
+      const spotMcapPill = $('spotMcapPill');
+      const spotPriceUsdPill = $('spotPriceUsdPill');
+      const spotMcapUsdPill = $('spotMcapUsdPill');
+      const pricePrecisionInput = $('pricePrecisionInput');
+      const mcapPrecisionInput = $('mcapPrecisionInput');
+      const spotMetaText = $('spotMetaText');
+      const recentTradeBody = $('recentTradeBody');
+      const explorerAddressInput = $('explorerAddressInput');
+      const explorerContractInput = $('explorerContractInput');
+      const explorerChainIdInput = $('explorerChainIdInput');
+      const explorerStartBlockInput = $('explorerStartBlockInput');
+      const explorerEndBlockInput = $('explorerEndBlockInput');
+      const explorerPageInput = $('explorerPageInput');
+      const explorerOffsetInput = $('explorerOffsetInput');
+      const explorerSortInput = $('explorerSortInput');
+      const explorerQueryBtn = $('explorerQueryBtn');
+      const explorerResetBtn = $('explorerResetBtn');
+      const explorerStatusText = $('explorerStatusText');
+      const explorerTxBody = $('explorerTxBody');
 
       let latest = null;
+      let latestProtocol = null;
       let flashUntil = 0;
       const LAUNCH_START_KEY = 'launchStartTime';
       const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -655,8 +858,21 @@
       const LS_MY_WALLETS_KEY = 'myWalletsList';
       const LS_MY_WALLETS_LABELS_KEY = 'myWalletsLabels';
       const LS_MY_FROM_BLOCK_KEY = 'myWalletFromBlock';
+      const LS_TOKEN_START_BLOCK_KEY = 'tokenStartBlock';
+      const LS_SPOT_PAIR_KEY = 'spotPairAddress';
       const LS_LANG_KEY = 'uiLang';
+      const LS_EXPLORER_OPTS_KEY = 'explorerTokentxOptions';
+      const LS_STRICT_CHAIN_MODE_KEY = 'strictChainMode';
+      const LS_PRICE_PRECISION_KEY = 'pricePrecision';
+      const LS_MCAP_PRECISION_KEY = 'mcapPrecision';
       let currentLang = localStorage.getItem(LS_LANG_KEY) || 'zh';
+      const API_BASE = String(window.__API_BASE__ || '').trim().replace(/\/+$/, '');
+      const apiUrl = (pathname) => {
+        const p = String(pathname || '');
+        if (/^https?:\/\//i.test(p)) return p;
+        const normalized = p.startsWith('/') ? p : `/${p}`;
+        return API_BASE ? `${API_BASE}${normalized}` : normalized;
+      };
       let eventSource = null;
       let sseRetryTimer = null;
       let startBusy = false;
@@ -664,109 +880,118 @@
       let myWallets = [];
       let walletLabels = {};
       let launchStartSec = 0;
+      let strictChainMode = String(localStorage.getItem(LS_STRICT_CHAIN_MODE_KEY) ?? '1') !== '0';
+      const EXPLORER_DEFAULTS = {
+        chainid: '8453',
+        startblock: '0',
+        endblock: '99999999',
+        page: '1',
+        offset: '50',
+        sort: 'desc',
+      };
       const I18N = {
         zh: {
-          ph_token: 'Token åˆçº¦åœ°å€ (0x...)',
-          ph_wallet: 'æˆ‘çš„é’±åŒ… (0x...)',
-          ph_sell_tax: 'å–å‡ºç¨ %',
-          ph_wallets: 'æ·»åŠ é’±åŒ…åœ°å€ï¼ˆæ¯è¡Œä¸€ä¸ªï¼‰',
-          ph_from_block: 'æˆ‘çš„å›æ‰«èµ·å§‹å—',
-          launch_label: 'å¼€ç›˜æ—¶é—´',
-          launch_fallback_aria: 'å¼€ç›˜æ—¶é—´åå¤‡è¾“å…¥',
-          set_now: 'è®¾ä¸ºå½“å‰',
-          start_track: 'å¼€å§‹è¿½è¸ª',
-          stop_track: 'åœæ­¢',
-          mode_token: 'å£å¾„ Token',
-          mode_virtual: 'å£å¾„ Virtual',
-          add_wallets: 'æ·»åŠ é’±åŒ…',
-          clear_wallets: 'æ¸…ç©ºé’±åŒ…',
-          my_wallets: 'æˆ‘çš„é’±åŒ…',
-          th_scope: 'èŒƒå›´',
-          th_balance: 'ä½™é¢',
-          th_spent_v: 'ç´¯è®¡èŠ±è´¹V',
-          th_recv_t: 'ç´¯è®¡åˆ°æ‰‹T',
-          th_cost: 'æˆæœ¬',
-          th_eff_cost: 'æœ‰æ•ˆæˆæœ¬',
-          th_be_mcap: 'å›æœ¬å¸‚å€¼',
-          th_last_active: 'æœ€åæ´»è·ƒ',
-          th_address: 'åœ°å€',
-          th_cum_in: 'ç´¯è®¡æµå…¥',
-          th_cum_out: 'ç´¯è®¡æµå‡º',
-          th_share: 'å æ¯”%',
-          th_label: 'æ ‡ç­¾',
-          th_category: 'åˆ†ç±»',
-          hint_ready: 'å°±ç»ªã€‚',
-          rule_title: 'è§„åˆ™çŠ¶æ€',
-          kpi_1m: '1åˆ†é’Ÿç¨åé‡',
-          kpi_2m: '2åˆ†é’Ÿåºåˆ—',
-          kpi_5m: '5åˆ†é’Ÿç¨åé‡',
-          kpi_cd: 'å†·å´',
-          kpi_rmv: 'æˆ‘çš„RMV',
-          kpi_cost: 'æˆ‘çš„æˆæœ¬',
-          holders_title: 'æŒä»“æ¦œ',
-          special_title: 'åè®®ç‰¹æ®Šèµ„é‡‘æµ',
-          launch_modal_title: 'é€‰æ‹©å¼€ç›˜æ—¶é—´',
-          wheel_date: 'æ—¥æœŸ',
-          wheel_hour: 'å°æ—¶',
-          wheel_minute: 'åˆ†é’Ÿ',
-          close: 'å…³é—­',
-          cancel: 'å–æ¶ˆ',
-          confirm: 'ç¡®è®¤',
-          status_running: 'è¿è¡Œä¸­',
-          status_stopped: 'å·²åœæ­¢',
-          status_disconnected: 'å·²æ–­å¼€',
-          status_line: 'çŠ¶æ€: {status} | åŒºå—: {block}',
-          token_line: 'ä»£å¸: {token}',
-          transfers_waiting: 'äº¤æ˜“: ç­‰å¾…ä¸­...',
-          transfers_none: 'äº¤æ˜“: å½“å‰çª—å£æ— è½¬è´¦',
-          transfers_need_virtual: 'äº¤æ˜“: è¯·é…ç½® VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS',
-          transfers_logs: 'äº¤æ˜“: logs {logs} | tx {tx}',
-          transfers_disconnected: 'äº¤æ˜“: è¿æ¥æ–­å¼€',
-          pair: 'åºåˆ—',
-          tax_now: 'å½“å‰ä¹°å…¥ç¨ç‡: {tax}%',
-          cd_ready: 'å¯è§¦å‘',
-          rule_wait: 'ç­‰å¾…',
-          rule_wait_desc: 'ç­‰å¾…è¿ç»­ä¸¤åˆ†é’Ÿçªç ´ 3000 / 6000',
-          rule_first: 'ç¬¬ä¸€é˜ˆå€¼çªç ´',
-          rule_first_desc: 'ç­‰å¾…ç¬¬äºŒåˆ†é’Ÿç¡®è®¤',
-          rule_second: 'ç¬¬äºŒé˜ˆå€¼ç¡®è®¤',
-          rule_second_desc: 'è¿ç»­ä¸¤åˆ†é’Ÿçªç ´æˆç«‹',
-          rule_trigger: 'å…¥åœºè§¦å‘',
-          rule_trigger_desc: 'è§„åˆ™å·²è§¦å‘ï¼Œè¿›å…¥å†·å´æœŸ',
-          wallet_state_running: 'å›æ‰«è¿›è¡Œä¸­',
-          wallet_state_queued: 'å›æ‰«æ’é˜Ÿä¸­',
-          wallet_state_done: 'å›æ‰«å®Œæˆ',
-          wallet_state_error: 'å›æ‰«å¤±è´¥',
-          wallet_state_idle: 'ç©ºé—²',
-          wallet_total: 'æ€»è®¡',
-          wallet_copy: 'å¤åˆ¶',
-          wallet_name_placeholder: 'å¤‡æ³¨',
-          wallet_copy_ok: 'å·²å¤åˆ¶ {addr}',
-          set_now_ok: 'å·²è®¾ç½®ä¸ºå½“å‰æ—¶é—´ã€‚',
-          runtime_updated: 'è¿è¡Œå‚æ•°å·²æ›´æ–°ã€‚',
-          wallets_updated: 'æˆ‘çš„é’±åŒ…å·²æ›´æ–° ({count})',
-          wallets_update_failed: 'é’±åŒ…æ›´æ–°å¤±è´¥: {msg}',
-          wallets_invalid: 'æœªè¯†åˆ«æœ‰æ•ˆé’±åŒ…åœ°å€ï¼Œè¯·æ¯è¡Œè¾“å…¥ä¸€ä¸ªåœ°å€ã€‚',
-          wallets_added: 'æ–°å¢ {count} ä¸ªé’±åŒ…ï¼Œæ€»è®¡ {total}ã€‚',
-          wallets_exists: 'åœ°å€å·²å­˜åœ¨ï¼Œæœªæ–°å¢ã€‚',
-          start_invalid_token: 'Token åœ°å€æ ¼å¼æ— æ•ˆï¼Œè¯·è¾“å…¥ 0x å¼€å¤´çš„ 42 ä½åœ°å€ã€‚',
-          start_busy: 'å¯åŠ¨ä¸­...',
-          start_scanning: 'æ­£åœ¨å¯åŠ¨è¿½è¸ªä»»åŠ¡å¹¶å›æ‰«å†å²...',
-          start_ok: 'è¿½è¸ªå·²å¯åŠ¨ã€‚',
-          start_abort_running: 'å¯åŠ¨è¯·æ±‚è¶…æ—¶ï¼Œä½†ä»»åŠ¡å·²åœ¨åå°è¿è¡Œã€‚',
-          start_abort_failed: 'å¯åŠ¨è¶…æ—¶ï¼Œä»»åŠ¡å¯èƒ½æœªæˆåŠŸå¯åŠ¨ã€‚',
-          start_abort_check_failed: 'å¯åŠ¨è¶…æ—¶ï¼Œä¸”çŠ¶æ€å›æŸ¥å¤±è´¥ã€‚',
-          start_failed: 'å¯åŠ¨å¤±è´¥: {msg}',
-          stop_busy: 'åœæ­¢ä¸­...',
-          stop_wait: 'æ­£åœ¨åœæ­¢è¿½è¸ªä»»åŠ¡...',
-          stop_ok: 'è¿½è¸ªå·²åœæ­¢ã€‚',
-          stop_abort_done: 'åœæ­¢è¯·æ±‚è¶…æ—¶ï¼Œä½†ä»»åŠ¡å·²åœæ­¢ã€‚',
-          stop_abort_running: 'åœæ­¢è¶…æ—¶ï¼Œä»»åŠ¡å¯èƒ½ä»åœ¨è¿è¡Œã€‚',
-          stop_abort_check_failed: 'åœæ­¢è¶…æ—¶ï¼Œä¸”çŠ¶æ€å›æŸ¥å¤±è´¥ã€‚',
-          stop_failed: 'åœæ­¢å¤±è´¥: {msg}',
-          sse_connected: 'å®æ—¶æµå·²è¿æ¥ã€‚',
-          sse_disconnected: 'å®æ—¶æµæ–­å¼€ï¼Œæ­£åœ¨é‡è¿...',
-          init_status_failed: 'è·å–åˆå§‹çŠ¶æ€å¤±è´¥ï¼Œè¯·æ£€æŸ¥åç«¯æœåŠ¡ã€‚',
+          ph_token: 'Token ºÏÔ¼µØÖ· (0x...)',
+          ph_wallet: 'ÎÒµÄÇ®°ü (0x...)',
+          ph_sell_tax: 'Âô³öË° %',
+          ph_wallets: 'Ìí¼ÓÇ®°üµØÖ·£¨Ã¿ĞĞÒ»¸ö£©',
+          ph_from_block: 'ÎÒµÄ»ØÉ¨ÆğÊ¼¿é',
+          launch_label: '¿ªÅÌÊ±¼ä',
+          launch_fallback_aria: '¿ªÅÌÊ±¼äºó±¸ÊäÈë',
+          set_now: 'ÉèÎªµ±Ç°',
+          start_track: '¿ªÊ¼×·×Ù',
+          stop_track: 'Í£Ö¹',
+          mode_token: '¿Ú¾¶ Token',
+          mode_virtual: '¿Ú¾¶ Virtual',
+          add_wallets: 'Ìí¼ÓÇ®°ü',
+          clear_wallets: 'Çå¿ÕÇ®°ü',
+          my_wallets: 'ÎÒµÄÇ®°ü',
+          th_scope: '·¶Î§',
+          th_balance: 'Óà¶î',
+          th_spent_v: 'ÀÛ¼Æ»¨·ÑV',
+          th_recv_t: 'ÀÛ¼Æµ½ÊÖT',
+          th_cost: '³É±¾',
+          th_eff_cost: 'ÓĞĞ§³É±¾',
+          th_be_mcap: '»Ø±¾ÊĞÖµ',
+          th_last_active: '×îºó»îÔ¾',
+          th_address: 'µØÖ·',
+          th_cum_in: 'ÀÛ¼ÆÁ÷Èë',
+          th_cum_out: 'ÀÛ¼ÆÁ÷³ö',
+          th_share: 'Õ¼±È%',
+          th_label: '±êÇ©',
+          th_category: '·ÖÀà',
+          hint_ready: '¾ÍĞ÷¡£',
+          rule_title: '¹æÔò×´Ì¬',
+          kpi_1m: '1·ÖÖÓË°ºóÁ¿',
+          kpi_2m: '2·ÖÖÓĞòÁĞ',
+          kpi_5m: '5·ÖÖÓË°ºóÁ¿',
+          kpi_cd: 'ÀäÈ´',
+          kpi_rmv: 'ÎÒµÄRMV',
+          kpi_cost: 'ÎÒµÄ³É±¾',
+          holders_title: '³Ö²Ö°ñ',
+          special_title: 'Ğ­ÒéÌØÊâ×Ê½ğÁ÷',
+          launch_modal_title: 'Ñ¡Ôñ¿ªÅÌÊ±¼ä',
+          wheel_date: 'ÈÕÆÚ',
+          wheel_hour: 'Ğ¡Ê±',
+          wheel_minute: '·ÖÖÓ',
+          close: '¹Ø±Õ',
+          cancel: 'È¡Ïû',
+          confirm: 'È·ÈÏ',
+          status_running: 'ÔËĞĞÖĞ',
+          status_stopped: 'ÒÑÍ£Ö¹',
+          status_disconnected: 'ÒÑ¶Ï¿ª',
+          status_line: '×´Ì¬: {status} | Çø¿é: {block}',
+          token_line: '´ú±Ò: {token}',
+          transfers_waiting: '½»Ò×: µÈ´ıÖĞ...',
+          transfers_none: '½»Ò×: µ±Ç°´°¿ÚÎŞ×ªÕË',
+          transfers_need_virtual: '½»Ò×: ÇëÅäÖÃ VIRTUAL_CA / VIRTUAL_TOKEN_ADDRESS',
+          transfers_logs: '½»Ò×: logs {logs} | tx {tx}',
+          transfers_disconnected: '½»Ò×: Á¬½Ó¶Ï¿ª',
+          pair: 'ĞòÁĞ',
+          tax_now: 'µ±Ç°ÂòÈëË°ÂÊ: {tax}%',
+          cd_ready: '¿É´¥·¢',
+          rule_wait: 'µÈ´ı',
+          rule_wait_desc: 'µÈ´ıÁ¬ĞøÁ½·ÖÖÓÍ»ÆÆ 3000 / 6000',
+          rule_first: 'µÚÒ»ãĞÖµÍ»ÆÆ',
+          rule_first_desc: 'µÈ´ıµÚ¶ş·ÖÖÓÈ·ÈÏ',
+          rule_second: 'µÚ¶şãĞÖµÈ·ÈÏ',
+          rule_second_desc: 'Á¬ĞøÁ½·ÖÖÓÍ»ÆÆ³ÉÁ¢',
+          rule_trigger: 'Èë³¡´¥·¢',
+          rule_trigger_desc: '¹æÔòÒÑ´¥·¢£¬½øÈëÀäÈ´ÆÚ',
+          wallet_state_running: '»ØÉ¨½øĞĞÖĞ',
+          wallet_state_queued: '»ØÉ¨ÅÅ¶ÓÖĞ',
+          wallet_state_done: '»ØÉ¨Íê³É',
+          wallet_state_error: '»ØÉ¨Ê§°Ü',
+          wallet_state_idle: '¿ÕÏĞ',
+          wallet_total: '×Ü¼Æ',
+          wallet_copy: '¸´ÖÆ',
+          wallet_name_placeholder: '±¸×¢',
+          wallet_copy_ok: 'ÒÑ¸´ÖÆ {addr}',
+          set_now_ok: 'ÒÑÉèÖÃÎªµ±Ç°Ê±¼ä¡£',
+          runtime_updated: 'ÔËĞĞ²ÎÊıÒÑ¸üĞÂ¡£',
+          wallets_updated: 'ÎÒµÄÇ®°üÒÑ¸üĞÂ ({count})',
+          wallets_update_failed: 'Ç®°ü¸üĞÂÊ§°Ü: {msg}',
+          wallets_invalid: 'Î´Ê¶±ğÓĞĞ§Ç®°üµØÖ·£¬ÇëÃ¿ĞĞÊäÈëÒ»¸öµØÖ·¡£',
+          wallets_added: 'ĞÂÔö {count} ¸öÇ®°ü£¬×Ü¼Æ {total}¡£',
+          wallets_exists: 'µØÖ·ÒÑ´æÔÚ£¬Î´ĞÂÔö¡£',
+          start_invalid_token: 'Token µØÖ·¸ñÊ½ÎŞĞ§£¬ÇëÊäÈë 0x ¿ªÍ·µÄ 42 Î»µØÖ·¡£',
+          start_busy: 'Æô¶¯ÖĞ...',
+          start_scanning: 'ÕıÔÚÆô¶¯×·×ÙÈÎÎñ²¢»ØÉ¨ÀúÊ·...',
+          start_ok: '×·×ÙÒÑÆô¶¯¡£',
+          start_abort_running: 'Æô¶¯ÇëÇó³¬Ê±£¬µ«ÈÎÎñÒÑÔÚºóÌ¨ÔËĞĞ¡£',
+          start_abort_failed: 'Æô¶¯³¬Ê±£¬ÈÎÎñ¿ÉÄÜÎ´³É¹¦Æô¶¯¡£',
+          start_abort_check_failed: 'Æô¶¯³¬Ê±£¬ÇÒ×´Ì¬»Ø²éÊ§°Ü¡£',
+          start_failed: 'Æô¶¯Ê§°Ü: {msg}',
+          stop_busy: 'Í£Ö¹ÖĞ...',
+          stop_wait: 'ÕıÔÚÍ£Ö¹×·×ÙÈÎÎñ...',
+          stop_ok: '×·×ÙÒÑÍ£Ö¹¡£',
+          stop_abort_done: 'Í£Ö¹ÇëÇó³¬Ê±£¬µ«ÈÎÎñÒÑÍ£Ö¹¡£',
+          stop_abort_running: 'Í£Ö¹³¬Ê±£¬ÈÎÎñ¿ÉÄÜÈÔÔÚÔËĞĞ¡£',
+          stop_abort_check_failed: 'Í£Ö¹³¬Ê±£¬ÇÒ×´Ì¬»Ø²éÊ§°Ü¡£',
+          stop_failed: 'Í£Ö¹Ê§°Ü: {msg}',
+          sse_connected: 'ÊµÊ±Á÷ÒÑÁ¬½Ó¡£',
+          sse_disconnected: 'ÊµÊ±Á÷¶Ï¿ª£¬ÕıÔÚÖØÁ¬...',
+          init_status_failed: '»ñÈ¡³õÊ¼×´Ì¬Ê§°Ü£¬Çë¼ì²éºó¶Ë·şÎñ¡£',
         },
         en: {
           ph_token: 'Token CA (0x...)',
@@ -924,7 +1149,7 @@
       }
 
       function formatLocalDisplayFromSeconds(sec) {
-        if (!Number.isFinite(sec) || sec <= 0) return '-';
+        if (!Number.isFinite(sec) || sec <= 0) return 'Auto';
         const d = new Date(sec * 1000);
         const y = d.getFullYear();
         const mo = String(d.getMonth() + 1).padStart(2, '0');
@@ -944,7 +1169,12 @@
       }
 
       function setLaunchInputBySeconds(sec) {
-        if (!Number.isFinite(sec) || sec <= 0) return;
+        if (!Number.isFinite(sec) || sec <= 0) {
+          launchStartSec = 0;
+          launchInput.value = '';
+          launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(0);
+          return;
+        }
         launchStartSec = Math.floor(sec);
         launchInput.value = toLocalDatetimeValue(new Date(launchStartSec * 1000));
         launchDisplayBtn.textContent = formatLocalDisplayFromSeconds(sec);
@@ -976,6 +1206,8 @@
             launch_start_time: startSec,
             wallet_address: walletInput.value.trim(),
             sell_tax_pct: Number(sellTaxInput.value || 1),
+            token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           });
           if (d?.snapshot) renderSnapshot(d.snapshot);
         } catch {}
@@ -986,9 +1218,8 @@
         if (saved > 0) {
           setLaunchInputBySeconds(saved);
         } else {
-          const nowSec = Math.floor(Date.now() / 1000);
-          setLaunchInputBySeconds(nowSec);
-          localStorage.setItem(LAUNCH_START_KEY, String(nowSec));
+          setLaunchInputBySeconds(0);
+          localStorage.setItem(LAUNCH_START_KEY, '0');
         }
       }
 
@@ -1010,8 +1241,8 @@
           const d = new Date(today);
           d.setDate(today.getDate() - i);
           let label = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          if (i === 0) label = 'ä»Šå¤©';
-          if (i === 1) label = 'æ˜¨å¤©';
+          if (i === 0) label = '½ñÌì';
+          if (i === 1) label = '×òÌì';
           list.push({ date: d, label });
         }
         return list;
@@ -1173,6 +1404,8 @@
         localStorage.setItem(LS_MY_WALLETS_KEY, JSON.stringify(myWallets));
         localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
         localStorage.setItem(LS_MY_FROM_BLOCK_KEY, String(Number(myWalletFromBlockInput.value || 0)));
+        localStorage.setItem(LS_TOKEN_START_BLOCK_KEY, String(Number(tokenStartBlockInput.value || 0)));
+        localStorage.setItem(LS_SPOT_PAIR_KEY, normalizeAddressOrEmpty(spotPairInput.value));
         if (!push) return;
         try {
           await post('/api/settings/runtime', {
@@ -1181,6 +1414,8 @@
             sell_tax_pct: Number(sellTaxInput.value || 1),
             myWallets: myWallets,
             my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
+            token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           });
           setHint(t('wallets_updated', { count: myWallets.length }), 'ok');
         } catch (e) {
@@ -1204,6 +1439,170 @@
         if (x >= 1e3) return `${sign}${pick(x / 1e3)}K`;
         if (x >= 1) return `${sign}${x.toFixed(2)}`;
         return `${sign}${x.toFixed(4)}`;
+      }
+
+      function clampPrecision(v, fallback, max = 12) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return fallback;
+        const i = Math.floor(n);
+        return Math.max(0, Math.min(max, i));
+      }
+
+      function fmtFixed(n, digits = 8) {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return '-';
+        return v.toFixed(clampPrecision(digits, 8, 18));
+      }
+
+      function isHexAddress(v) {
+        return /^0x[a-fA-F0-9]{40}$/.test(String(v || '').trim());
+      }
+
+      function normalizeAddressOrEmpty(v) {
+        const s = String(v || '').trim();
+        return isHexAddress(s) ? s : '';
+      }
+
+      function normalizeExplorerOptions(raw) {
+        const src = raw || {};
+        const next = {
+          address: String(src.address || '').trim(),
+          contractaddress: String(src.contractaddress || '').trim(),
+          chainid: String(src.chainid || EXPLORER_DEFAULTS.chainid).trim(),
+          startblock: String(src.startblock || EXPLORER_DEFAULTS.startblock).trim(),
+          endblock: String(src.endblock || EXPLORER_DEFAULTS.endblock).trim(),
+          page: String(src.page || EXPLORER_DEFAULTS.page).trim(),
+          offset: String(src.offset || EXPLORER_DEFAULTS.offset).trim(),
+          sort: String(src.sort || EXPLORER_DEFAULTS.sort).trim().toLowerCase(),
+        };
+        if (next.sort !== 'asc' && next.sort !== 'desc') next.sort = EXPLORER_DEFAULTS.sort;
+        return next;
+      }
+
+      function setExplorerStatus(text, level = '') {
+        if (!explorerStatusText) return;
+        const color = level === 'err'
+          ? '#ffb5c2'
+          : level === 'ok'
+            ? '#bdeecf'
+            : level === 'warn'
+              ? '#ffd89d'
+              : '#9fc2df';
+        explorerStatusText.style.color = color;
+        explorerStatusText.textContent = text;
+      }
+
+      function applyExplorerOptions(opts, resetAddressAndContract = false) {
+        if (!explorerAddressInput) return;
+        const value = normalizeExplorerOptions(opts);
+        const wallet = String(walletInput?.value || '').trim();
+        const token = String(tokenInput?.value || '').trim();
+        const fallbackAddress = isHexAddress(wallet) ? wallet : '';
+        const fallbackContract = isHexAddress(token) ? token : '';
+        if (resetAddressAndContract) {
+          explorerAddressInput.value = fallbackAddress;
+          explorerContractInput.value = fallbackContract;
+        } else {
+          explorerAddressInput.value = value.address || fallbackAddress;
+          explorerContractInput.value = value.contractaddress || fallbackContract;
+        }
+        explorerChainIdInput.value = value.chainid;
+        explorerStartBlockInput.value = value.startblock;
+        explorerEndBlockInput.value = value.endblock;
+        explorerPageInput.value = value.page;
+        explorerOffsetInput.value = value.offset;
+        explorerSortInput.value = value.sort;
+      }
+
+      function readExplorerOptions() {
+        return normalizeExplorerOptions({
+          address: explorerAddressInput?.value,
+          contractaddress: explorerContractInput?.value,
+          chainid: explorerChainIdInput?.value,
+          startblock: explorerStartBlockInput?.value,
+          endblock: explorerEndBlockInput?.value,
+          page: explorerPageInput?.value,
+          offset: explorerOffsetInput?.value,
+          sort: explorerSortInput?.value,
+        });
+      }
+
+      function saveExplorerOptions(opts) {
+        localStorage.setItem(LS_EXPLORER_OPTS_KEY, JSON.stringify(normalizeExplorerOptions(opts)));
+      }
+
+      function renderExplorerRows(rows) {
+        if (!explorerTxBody) return;
+        const list = Array.isArray(rows) ? rows : [];
+        explorerTxBody.innerHTML = list.map((r) => {
+          const ts = Number(r.timeStamp || 0);
+          const tm = ts > 0 ? new Date(ts * 1000).toLocaleString() : '-';
+          const hash = String(r.hash || '');
+          const from = String(r.from || '');
+          const to = String(r.to || '');
+          const tokenSymbol = String(r.tokenSymbol || '-');
+          const tokenDecimal = Number(r.tokenDecimal || 18);
+          const valueRaw = Number(r.value || 0);
+          const value = Number.isFinite(valueRaw) ? valueRaw / (10 ** Math.min(30, Math.max(0, tokenDecimal))) : 0;
+          return `
+            <tr>
+              <td>${tm}</td>
+              <td class="mono" title="${hash}">${shortAddr(hash)}</td>
+              <td>${tokenSymbol}</td>
+              <td class="mono" title="${from}">${shortAddr(from)}</td>
+              <td class="mono" title="${to}">${shortAddr(to)}</td>
+              <td>${fmt(value)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      async function queryExplorerTokentx() {
+        const opts = readExplorerOptions();
+        if (!isHexAddress(opts.address)) {
+          setExplorerStatus('address is required and must be 0x...', 'err');
+          return;
+        }
+        if (opts.contractaddress && !isHexAddress(opts.contractaddress)) {
+          setExplorerStatus('contractaddress must be 0x... or empty', 'err');
+          return;
+        }
+
+        saveExplorerOptions(opts);
+        setExplorerStatus('querying...', 'warn');
+        explorerQueryBtn.disabled = true;
+
+        const url = new URL(apiUrl('/api/explorer/tokentx'), window.location.origin);
+        url.searchParams.set('address', opts.address);
+        if (opts.contractaddress) url.searchParams.set('contractaddress', opts.contractaddress);
+        url.searchParams.set('chainid', opts.chainid);
+        url.searchParams.set('startblock', opts.startblock);
+        url.searchParams.set('endblock', opts.endblock);
+        url.searchParams.set('page', opts.page);
+        url.searchParams.set('offset', opts.offset);
+        url.searchParams.set('sort', opts.sort);
+
+        try {
+          const r = await fetch(url.toString(), { cache: 'no-store' });
+          const d = await r.json();
+          if (!r.ok || !d?.ok) {
+            const msg = d?.error || d?.upstream?.message || 'query failed';
+            throw new Error(msg);
+          }
+          const result = d?.upstream?.result;
+          const rows = Array.isArray(result) ? result : [];
+          renderExplorerRows(rows);
+          if (Array.isArray(result)) {
+            setExplorerStatus(`ok, rows=${rows.length}`, 'ok');
+          } else {
+            const detail = String(result || d?.upstream?.message || 'upstream returned non-array result');
+            setExplorerStatus(`no rows, upstream=${detail}`, 'warn');
+          }
+        } catch (err) {
+          setExplorerStatus(String(err?.message || err), 'err');
+        } finally {
+          explorerQueryBtn.disabled = false;
+        }
       }
 
       function setModeBtn(mode) {
@@ -1273,19 +1672,106 @@
         }).join('');
       }
 
-      function renderSpecial(snapshot) {
-        const rows = snapshot.special_stats || [];
-        specialBody.innerHTML = rows.map((r) => {
-          const c = Number(r.net_virtual_5m || 0) >= 0 ? 'good' : 'bad';
+      function renderProtocolMonitor(payload) {
+        const p = payload || {};
+        const s = p.summary || {};
+        const addresses = p.addresses || [];
+        const flows = p.specialFlows || [];
+        protocol1mPill.textContent = `Net 1m: ${fmt(s.net1mV || 0)} V (in ${fmt(s.net1mInV || 0)} / out ${fmt(s.net1mOutV || 0)})`;
+        protocol5mPill.textContent = `Net 5m: ${fmt(s.net5mV || 0)} V (in ${fmt(s.net5mInV || 0)} / out ${fmt(s.net5mOutV || 0)})`;
+        protocolExecPill.textContent = `Executor 5m: ${Number(s.executor5m || 0)}`;
+        sellWallBalancePill.textContent = `Sell Wall Balance: ${fmt(s.sellWallBalanceT || 0)} T`;
+        launchPoolBalancePill.textContent = `LaunchPool Balance: ${fmt(s.launchPoolBalanceT || 0)} T`;
+        protocolPotentialText.textContent = `Potential: ${Number(s.potential || 0)}`;
+        protocolAlertText.textContent = `Alert(${String(s.alert?.level || 'none')}): ${String(s.alert?.message || 'No special alert')}`;
+        protocolAlertText.style.color = s.alert?.level === 'critical' ? '#ffb5c2' : s.alert?.level === 'warn' ? '#ffd99f' : '#9fc2df';
+
+        const renderAddrRows = (rows) => rows.map((r) => {
+          const cls = Number(r.net1mV || 0) >= 0 ? 'good' : 'bad';
           return `
             <tr>
-              <td>${r.label}</td>
-              <td>${r.category}</td>
-              <td class="${c}">${fmt(r.net_virtual_5m)}</td>
-              <td>${fmt(r.net_virtual_1h)}</td>
-              <td>${fmt(r.net_virtual_cum)}</td>
-              <td>${fmt(r.net_token_5m)}</td>
-              <td>${fmt(r.net_token_cum)}</td>
+              <td class="mono" title="${r.address || ''}">${shortAddr(r.address || '')}</td>
+              <td>${r.type || '-'}</td>
+              <td class="${cls}" title="${Number(r.net1mV || 0)}">${fmt(r.net1mV || 0)}</td>
+              <td title="${Number(r.net5mV || 0)}">${fmt(r.net5mV || 0)}</td>
+              <td title="${Number(r.net5mT || 0)}">${fmt(r.net5mT || 0)}</td>
+              <td>${Number(r.interactions5m || 0)}</td>
+            </tr>
+          `;
+        }).join('');
+
+        protocolBody.innerHTML = renderAddrRows(addresses);
+        protocolAddressesEmpty.classList.toggle('hidden', addresses.length > 0);
+
+        specialBody.innerHTML = flows.map((r) => {
+          const c = Number(r.v5m || 0) >= 0 ? 'good' : 'bad';
+          return `
+            <tr>
+              <td>${r.label || '-'}</td>
+              <td>${r.category || '-'}</td>
+              <td class="${c}" title="${Number(r.v5m || 0)}">${fmt(r.v5m || 0)}</td>
+              <td title="${Number(r.v1h || 0)}">${fmt(r.v1h || 0)}</td>
+              <td title="${Number(r.cumV || 0)}">${fmt(r.cumV || 0)}</td>
+              <td title="${Number(r.t5m || 0)}">${fmt(r.t5m || 0)}</td>
+              <td title="${Number(r.cumT || 0)}">${fmt(r.cumT || 0)}</td>
+            </tr>
+          `;
+        }).join('');
+        specialFlowsEmpty.classList.toggle('hidden', flows.length > 0);
+      }
+
+      function renderRealtimePriceAndTrades(snapshot) {
+        if (strictChainModeBtn) {
+          strictChainModeBtn.textContent = `Strict Chain: ${strictChainMode ? 'ON' : 'OFF'}`;
+          strictChainModeBtn.classList.toggle('active', strictChainMode);
+        }
+        const p = snapshot?.price || {};
+        const priceDigits = clampPrecision(pricePrecisionInput?.value, 8, 18);
+        const mcapDigits = clampPrecision(mcapPrecisionInput?.value, 2, 8);
+        const spotPriceVirtual = Number(p.spot_price_virtual ?? p.spot_price ?? 0);
+        const spotMcapVirtual = Number(p.spot_mcap_virtual ?? p.spot_mcap ?? 0);
+        const spotPriceUsd = Number(p.spot_price_usd || 0);
+        const spotMcapUsd = Number(p.spot_mcap_usd || 0);
+        spotPricePill.textContent = `Spot Price /virtual: ${fmtFixed(spotPriceVirtual, priceDigits)}`;
+        spotMcapPill.textContent = `Spot MCAP /virtual: ${fmtFixed(spotMcapVirtual, mcapDigits)}`;
+        spotPriceUsdPill.textContent = `Spot Price /usd: ${fmtFixed(spotPriceUsd, priceDigits)}`;
+        spotMcapUsdPill.textContent = `Spot MCAP /usd: ${fmtFixed(spotMcapUsd, mcapDigits)}`;
+
+        const pairAddr = String(p.pair_address || '');
+        const pairTag = pairAddr ? shortAddr(pairAddr) : '-';
+        const pairMode = p.pair_auto_discovered ? 'auto' : (pairAddr ? 'manual' : 'n/a');
+        const usdPerVirtual = Number(p.usd_per_virtual || 0);
+        const usdRateText = Number.isFinite(usdPerVirtual) && usdPerVirtual > 0 ? fmtFixed(usdPerVirtual, priceDigits) : '-';
+        const strictText = strictChainMode ? `strict=true | rows=${Number((snapshot?.recent_transfers_raw || []).length || 0)}` : null;
+        const streamText = `source=${String(p.source || 'inferred')} | window=${Number(p.window_sec || 0)}s | trades=${Number(p.source_trade_count || 0)}`;
+        spotMetaText.textContent = `${strictText ? `${strictText} | ` : ''}${streamText} | pair=${pairTag}(${pairMode}) | 1 virtual=${usdRateText} usd`;
+
+        const rows = strictChainMode
+          ? (snapshot?.recent_transfers_raw || []).slice(0, 80)
+          : (snapshot?.recent_trades || []).slice(0, 80);
+        const filtered = rows.filter((r) => {
+          if (strictChainMode) return true;
+          const side = String(r.side || 'transfer');
+          return side === 'buy' || side === 'sell' || side === 'transfer';
+        });
+        recentTradeBody.innerHTML = filtered.map((r) => {
+          const ts = Number(r.timestamp || 0);
+          const tm = ts > 0 ? new Date(ts * 1000).toLocaleTimeString() : '-';
+          const side = strictChainMode ? 'transfer' : String(r.side || 'transfer');
+          const sideClass = side === 'buy' ? 'good' : side === 'sell' ? 'bad' : '';
+          const block = Number(r.block_number || 0);
+          const logIndex = Number(r.log_index || 0);
+          return `
+            <tr>
+              <td>${tm}</td>
+              <td class="mono">${block > 0 ? `${block}/${logIndex}` : '-'}</td>
+              <td class="${sideClass}">${side}</td>
+              <td class="mono" title="${r.from_address || ''}">${shortAddr(r.from_address || '')}</td>
+              <td class="mono" title="${r.to_address || ''}">${shortAddr(r.to_address || '')}</td>
+              <td>${fmt(r.amount_token || 0)}</td>
+              <td class="mono">${String(r.amount_raw || '-')}</td>
+              <td>${strictChainMode ? '-' : fmt(r.price || 0)}</td>
+              <td class="mono" title="${r.tx_hash || ''}">${shortAddr(r.tx_hash || '')}</td>
             </tr>
           `;
         }).join('');
@@ -1360,11 +1846,13 @@
         renderBars(snapshot.minute_series || []);
         renderCurve(snapshot.curves || {});
         renderHolders(snapshot);
-        renderSpecial(snapshot);
+        if (!latestProtocol && snapshot?.token) fetchProtocolMonitor(snapshot.token).catch(() => {});
+        renderRealtimePriceAndTrades(snapshot);
         renderMyWalletStats(snapshot.my_wallets || {});
       }
 
       function renderMyWalletStats(data) {
+        if (!myWalletTotalBody || !myWalletBody || !myWalletStatusChip) return;
         const st = data?.status || {};
         const state = String(st.state || 'idle');
         const stateText = state === 'running'
@@ -1382,16 +1870,16 @@
           ? `Error: ${st.last_error}`
           : (st.last_at ? `Last: ${new Date(st.last_at * 1000).toLocaleTimeString()} | Reason: ${st.last_reason || '-'}` : t('wallet_state_idle'));
 
-        const t = data?.total || {};
+        const totalStat = data?.total || {};
         myWalletTotalBody.innerHTML = `
           <tr>
             <td>${t('wallet_total')} (${(data?.addresses || []).length})</td>
-            <td>${fmt(t.balance || 0)}</td>
-            <td>${fmt(t.spent_virtual_sum || 0)}</td>
-            <td>${fmt(t.received_token_sum || 0)}</td>
-            <td>${fmt(t.cost_per_token || 0)}</td>
-            <td>${fmt(t.effective_cost_per_token || 0)}</td>
-            <td>${fmt(t.breakeven_mcap || 0)}</td>
+            <td>${fmt(totalStat.balance || 0)}</td>
+            <td>${fmt(totalStat.spent_virtual_sum || 0)}</td>
+            <td>${fmt(totalStat.received_token_sum || 0)}</td>
+            <td>${fmt(totalStat.cost_per_token || 0)}</td>
+            <td>${fmt(totalStat.effective_cost_per_token || 0)}</td>
+            <td>${fmt(totalStat.breakeven_mcap || 0)}</td>
             <td>-</td>
           </tr>
         `;
@@ -1418,7 +1906,7 @@
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          const r = await fetch(url, {
+          const r = await fetch(apiUrl(url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body || {}),
@@ -1434,9 +1922,29 @@
       }
 
       async function refreshStatusOnce() {
-        const d = await fetch('/api/status', { cache: 'no-store' }).then((r) => r.json());
+        const d = await fetch(apiUrl('/api/status'), { cache: 'no-store' }).then((r) => r.json());
         if (d?.snapshot) renderSnapshot(d.snapshot);
         return d;
+      }
+
+      let lastProtocolToken = '';
+      async function fetchProtocolMonitor(token) {
+        const tkn = String(token || '').trim().toLowerCase();
+        if (!/^0x[a-f0-9]{40}$/.test(tkn)) return null;
+        lastProtocolToken = tkn;
+        const d = await fetch(apiUrl(`/api/protocol-monitor?token=${tkn}`), { cache: 'no-store' }).then((r) => r.json());
+        if (d?.ok) {
+          latestProtocol = {
+            ...d,
+            summary: { ...(d.summary || {}) },
+            specialFlows: Array.isArray(d.specialFlows) ? [...d.specialFlows] : [],
+            addresses: Array.isArray(d.addresses) ? [...d.addresses] : [],
+            potentialAddresses: Array.isArray(d.potentialAddresses) ? [...d.potentialAddresses] : [],
+          };
+          renderProtocolMonitor(latestProtocol);
+          return d;
+        }
+        return null;
       }
 
       startBtn.addEventListener('click', async () => {
@@ -1458,6 +1966,8 @@
             sell_tax_pct: Number(sellTaxInput.value || 1),
             myWallets: myWallets,
             my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
+            token_start_block: Number(tokenStartBlockInput.value || 0),
+            spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
           };
           const d = await post('/api/track/start', payload, 30000);
           renderSnapshot(d.snapshot);
@@ -1493,7 +2003,7 @@
           setButtonBusy(stopBtn, true, t('stop_busy'), t('stop_track'));
           setHint(t('stop_wait'), 'warn');
           await post('/api/track/stop', {}, 15000);
-          const st = await fetch('/api/status').then((r) => r.json());
+          const st = await fetch(apiUrl('/api/status')).then((r) => r.json());
           if (st?.snapshot) renderSnapshot(st.snapshot);
           statusPill.textContent = t('status_line', { status: t('status_stopped'), block: '-' });
           transferPill.textContent = 'Transfers: -';
@@ -1524,7 +2034,36 @@
         });
       });
 
-      [walletInput, sellTaxInput].forEach((el) => {
+      explorerQueryBtn?.addEventListener('click', async () => {
+        await queryExplorerTokentx();
+      });
+
+      explorerResetBtn?.addEventListener('click', () => {
+        applyExplorerOptions(EXPLORER_DEFAULTS, true);
+        saveExplorerOptions(readExplorerOptions());
+        renderExplorerRows([]);
+        setExplorerStatus('reset done');
+      });
+
+      strictChainModeBtn?.addEventListener('click', () => {
+        strictChainMode = !strictChainMode;
+        localStorage.setItem(LS_STRICT_CHAIN_MODE_KEY, strictChainMode ? '1' : '0');
+        if (latest) renderRealtimePriceAndTrades(latest);
+      });
+
+      [pricePrecisionInput, mcapPrecisionInput].forEach((el) => {
+        el?.addEventListener('input', () => {
+          const priceDigits = clampPrecision(pricePrecisionInput?.value, 8, 18);
+          const mcapDigits = clampPrecision(mcapPrecisionInput?.value, 2, 8);
+          if (pricePrecisionInput) pricePrecisionInput.value = String(priceDigits);
+          if (mcapPrecisionInput) mcapPrecisionInput.value = String(mcapDigits);
+          localStorage.setItem(LS_PRICE_PRECISION_KEY, String(priceDigits));
+          localStorage.setItem(LS_MCAP_PRECISION_KEY, String(mcapDigits));
+          if (latest) renderRealtimePriceAndTrades(latest);
+        });
+      });
+
+      [walletInput, sellTaxInput, myWalletFromBlockInput, tokenStartBlockInput, spotPairInput].forEach((el) => {
         el.addEventListener('change', async () => {
           try {
             await post('/api/settings/runtime', {
@@ -1533,6 +2072,8 @@
               sell_tax_pct: Number(sellTaxInput.value || 1),
               myWallets: myWallets,
               my_wallet_from_block: Number(myWalletFromBlockInput.value || 0),
+              token_start_block: Number(tokenStartBlockInput.value || 0),
+              spot_pair_address: normalizeAddressOrEmpty(spotPairInput.value),
             });
             setHint(t('runtime_updated'), 'ok');
           } catch {}
@@ -1566,7 +2107,7 @@
         applyMyWalletsRuntime(true);
       });
 
-      myWalletTags.addEventListener('click', (ev) => {
+      myWalletTags?.addEventListener('click', (ev) => {
         const btn = ev.target?.closest?.('[data-del-wallet]');
         if (!btn) return;
         const addr = btn.getAttribute('data-del-wallet');
@@ -1576,7 +2117,7 @@
         applyMyWalletsRuntime(true);
       });
 
-      myWalletTags.addEventListener('input', (ev) => {
+      myWalletTags?.addEventListener('input', (ev) => {
         const input = ev.target?.closest?.('[data-label-wallet]');
         if (!input) return;
         const addr = input.getAttribute('data-label-wallet');
@@ -1584,7 +2125,7 @@
         localStorage.setItem(LS_MY_WALLETS_LABELS_KEY, JSON.stringify(walletLabels || {}));
       });
 
-      myWalletBody.addEventListener('click', async (ev) => {
+      myWalletBody?.addEventListener('click', async (ev) => {
         const btn = ev.target?.closest?.('[data-copy]');
         if (!btn) return;
         const addr = btn.getAttribute('data-copy');
@@ -1647,8 +2188,9 @@
           try { eventSource.close(); } catch {}
           eventSource = null;
         }
-        eventSource = new EventSource('/api/events');
+        eventSource = new EventSource(apiUrl('/api/events'));
         eventSource.addEventListener('connected', () => {
+          console.log('SSE connected');
           setHint(t('sse_connected'), 'ok');
         });
         eventSource.addEventListener('update', (ev) => {
@@ -1660,10 +2202,23 @@
           flashUntil = Date.now() + 10000;
           renderSnapshot(p.snapshot);
         });
+        eventSource.addEventListener('protocol_update', (ev) => {
+          const p = JSON.parse(ev.data);
+          console.log('protocol_update received', p);
+          latestProtocol = {
+            ...p,
+            summary: { ...(p.summary || {}) },
+            specialFlows: Array.isArray(p.specialFlows) ? [...p.specialFlows] : [],
+            addresses: Array.isArray(p.addresses) ? [...p.addresses] : [],
+            potentialAddresses: Array.isArray(p.potentialAddresses) ? [...p.potentialAddresses] : [],
+          };
+          renderProtocolMonitor(latestProtocol);
+        });
         eventSource.onerror = () => {
           statusPill.textContent = t('status_line', { status: t('status_disconnected'), block: '-' });
           transferPill.textContent = t('transfers_disconnected');
           setHint(t('sse_disconnected'), 'warn');
+          if (lastProtocolToken) fetchProtocolMonitor(lastProtocolToken).catch(() => {});
           try { eventSource.close(); } catch {}
           eventSource = null;
           clearTimeout(sseRetryTimer);
@@ -1683,9 +2238,17 @@
       const savedMyWallets = localStorage.getItem(LS_MY_WALLETS_KEY);
       const savedWalletLabels = localStorage.getItem(LS_MY_WALLETS_LABELS_KEY);
       const savedFromBlock = localStorage.getItem(LS_MY_FROM_BLOCK_KEY);
+      const savedTokenStartBlock = localStorage.getItem(LS_TOKEN_START_BLOCK_KEY);
+      const savedSpotPair = localStorage.getItem(LS_SPOT_PAIR_KEY);
+      const savedPricePrecision = localStorage.getItem(LS_PRICE_PRECISION_KEY);
+      const savedMcapPrecision = localStorage.getItem(LS_MCAP_PRECISION_KEY);
       if (savedToken) tokenInput.value = savedToken;
       if (savedWallet) walletInput.value = savedWallet;
       if (savedFromBlock) myWalletFromBlockInput.value = savedFromBlock;
+      if (savedTokenStartBlock) tokenStartBlockInput.value = savedTokenStartBlock;
+      if (savedSpotPair) spotPairInput.value = savedSpotPair;
+      if (pricePrecisionInput) pricePrecisionInput.value = String(clampPrecision(savedPricePrecision, 8, 18));
+      if (mcapPrecisionInput) mcapPrecisionInput.value = String(clampPrecision(savedMcapPrecision, 2, 8));
       if (savedMyWallets) {
         try {
           myWallets = JSON.parse(savedMyWallets) || [];
@@ -1708,10 +2271,18 @@
       myWalletsInput.value = '';
       renderMyWalletTags();
       applyMyWalletsRuntime(false);
+      const explorerSavedRaw = localStorage.getItem(LS_EXPLORER_OPTS_KEY);
+      let explorerSaved = EXPLORER_DEFAULTS;
+      if (explorerSavedRaw) {
+        try { explorerSaved = normalizeExplorerOptions(JSON.parse(explorerSavedRaw)); } catch {}
+      }
+      applyExplorerOptions(explorerSaved, false);
+      setExplorerStatus('ready');
       connectEvents();
 
-      fetch('/api/status').then((r) => r.json()).then((d) => {
+      fetch(apiUrl('/api/status')).then((r) => r.json()).then((d) => {
         renderSnapshot(d.snapshot);
+        if (d?.snapshot?.token) fetchProtocolMonitor(d.snapshot.token).catch(() => {});
       }).catch(() => {
         setHint(t('init_status_failed'), 'err');
       });
@@ -1724,10 +2295,4 @@
     </script>
   </body>
 </html>
-
-
-
-
-
-
 
