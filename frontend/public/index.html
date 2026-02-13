@@ -400,7 +400,7 @@
       .curve-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
       .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
 
-      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+      .panel-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; align-items: start; }
       .table-wrap {
         max-height: 52vh;
         overflow: auto;
@@ -414,9 +414,27 @@
       tbody tr { border-top: 1px solid rgba(130,160,190,.14); }
       .good { color: var(--ok); }
       .bad { color: #ff8da0; }
+      .proto-tabs { display: flex; gap: 8px; margin-top: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+      .proto-tab-btn {
+        border: 1px solid rgba(127,170,212,.2);
+        background: rgba(20,37,58,.72);
+        color: #c7e4fb;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .proto-tab-btn.active {
+        background: rgba(101,194,255,.22);
+        color: #e9f6ff;
+        border-color: rgba(101,194,255,.5);
+      }
+      .proto-pane.hidden { display: none; }
+      .empty-text { color: #9fc2df; font-size: 12px; padding: 10px 4px; }
+      .protocol-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 
       @media (max-width: 1380px) {
-        .panel-grid { grid-template-columns: repeat(2, minmax(280px, 1fr)); }
+        .panel-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
       }
       @media (max-width: 1120px) {
         .hero { grid-template-columns: 1fr; }
@@ -602,52 +620,74 @@
         </div>
 
         <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;" data-i18n="special_title">Special Protocol Flows</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th data-i18n="th_label">Label</th>
-                  <th data-i18n="th_category">Category</th>
-                  <th>5m V</th>
-                  <th>1h V</th>
-                  <th>Cum V</th>
-                  <th>5m T</th>
-                  <th>Cum T</th>
-                </tr>
-              </thead>
-              <tbody id="specialBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Activity</div>
-          <div class="status" style="margin-top:0;">
+          <div style="font-size:13px;color:#c3e5ff;margin-bottom:6px;">Protocol Monitor</div>
+          <div class="protocol-summary-grid">
             <div id="protocol1mPill" class="pill mono">Net 1m: -</div>
             <div id="protocol5mPill" class="pill mono">Net 5m: -</div>
             <div id="protocolExecPill" class="pill mono">Executor 5m: -</div>
-          </div>
-          <div class="status" style="margin-top:6px;">
             <div id="sellWallBalancePill" class="pill mono">Sell Wall Balance: -</div>
             <div id="launchPoolBalancePill" class="pill mono">LaunchPool Balance: -</div>
+            <div id="protocolPotentialText" class="pill mono">Potential: -</div>
           </div>
-          <div id="protocolAlertText" class="mono" style="margin-top:6px;font-size:12px;color:#9fc2df;">Alert: -</div>
-          <div id="protocolPotentialText" class="mono" style="margin-top:4px;font-size:12px;color:#9fc2df;">Potential: -</div>
-          <div class="table-wrap" style="margin-top:8px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Address</th>
-                  <th>Type</th>
-                  <th>Net 1m V</th>
-                  <th>Net 5m V</th>
-                  <th>Net 5m T</th>
-                  <th>Interactions 5m</th>
-                </tr>
-              </thead>
-              <tbody id="protocolBody"></tbody>
-            </table>
+          <div id="protocolAlertText" class="mono" style="margin-top:8px;font-size:12px;color:#9fc2df;">Alert: -</div>
+          <div class="proto-tabs">
+            <button id="protoTabSummaryBtn" class="proto-tab-btn active" type="button">Summary</button>
+            <button id="protoTabFlowsBtn" class="proto-tab-btn" type="button">Special Flows</button>
+            <button id="protoTabAddressesBtn" class="proto-tab-btn" type="button">Addresses</button>
+          </div>
+          <div id="protoPaneSummary" class="proto-pane">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Address</th>
+                    <th>Type</th>
+                    <th>Net 1m V</th>
+                    <th>Net 5m V</th>
+                    <th>Net 5m T</th>
+                    <th>Interactions 5m</th>
+                  </tr>
+                </thead>
+                <tbody id="protocolSummaryBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="protoPaneFlows" class="proto-pane hidden">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Label</th>
+                    <th>Category</th>
+                    <th>5m V</th>
+                    <th>1h V</th>
+                    <th>Cum V</th>
+                    <th>5m T</th>
+                    <th>Cum T</th>
+                  </tr>
+                </thead>
+                <tbody id="protocolFlowsBody"></tbody>
+              </table>
+            </div>
+            <div id="protocolFlowsEmpty" class="empty-text hidden">No special flows detected yet</div>
+          </div>
+          <div id="protoPaneAddresses" class="proto-pane hidden">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Address</th>
+                    <th>Type</th>
+                    <th>Net 1m V</th>
+                    <th>Net 5m V</th>
+                    <th>Net 5m T</th>
+                    <th>Interactions 5m</th>
+                  </tr>
+                </thead>
+                <tbody id="protocolAddressesBody"></tbody>
+              </table>
+            </div>
+            <div id="protocolAddressesEmpty" class="empty-text hidden">No protocol addresses yet</div>
           </div>
         </div>
       </div>
@@ -776,7 +816,6 @@
       const bars = $('bars');
       const curveSvg = $('curveSvg');
       const holderBody = $('holderBody');
-      const specialBody = $('specialBody');
       const protocol1mPill = $('protocol1mPill');
       const protocol5mPill = $('protocol5mPill');
       const protocolExecPill = $('protocolExecPill');
@@ -784,7 +823,17 @@
       const launchPoolBalancePill = $('launchPoolBalancePill');
       const protocolAlertText = $('protocolAlertText');
       const protocolPotentialText = $('protocolPotentialText');
-      const protocolBody = $('protocolBody');
+      const protocolSummaryBody = $('protocolSummaryBody');
+      const protocolFlowsBody = $('protocolFlowsBody');
+      const protocolAddressesBody = $('protocolAddressesBody');
+      const protocolFlowsEmpty = $('protocolFlowsEmpty');
+      const protocolAddressesEmpty = $('protocolAddressesEmpty');
+      const protoTabSummaryBtn = $('protoTabSummaryBtn');
+      const protoTabFlowsBtn = $('protoTabFlowsBtn');
+      const protoTabAddressesBtn = $('protoTabAddressesBtn');
+      const protoPaneSummary = $('protoPaneSummary');
+      const protoPaneFlows = $('protoPaneFlows');
+      const protoPaneAddresses = $('protoPaneAddresses');
       const kpi1 = $('kpi1');
       const kpi2 = $('kpi2');
       const kpi5 = $('kpi5');
@@ -814,6 +863,7 @@
       const explorerTxBody = $('explorerTxBody');
 
       let latest = null;
+      let latestProtocol = null;
       let flashUntil = 0;
       const LAUNCH_START_KEY = 'launchStartTime';
       const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -1648,58 +1698,63 @@
         }).join('');
       }
 
-      function renderSpecial(snapshot) {
-        const rows = snapshot.special_stats || [];
-        specialBody.innerHTML = rows.map((r) => {
-          const c = Number(r.net_virtual_5m || 0) >= 0 ? 'good' : 'bad';
-          return `
-            <tr>
-              <td>${r.label}</td>
-              <td>${r.category}</td>
-              <td class="${c}">${fmt(r.net_virtual_5m)}</td>
-              <td>${fmt(r.net_virtual_1h)}</td>
-              <td>${fmt(r.net_virtual_cum)}</td>
-              <td>${fmt(r.net_token_5m)}</td>
-              <td>${fmt(r.net_token_cum)}</td>
-            </tr>
-          `;
-        }).join('');
+      function setProtocolTab(name) {
+        const tab = String(name || 'summary');
+        protoTabSummaryBtn?.classList.toggle('active', tab === 'summary');
+        protoTabFlowsBtn?.classList.toggle('active', tab === 'flows');
+        protoTabAddressesBtn?.classList.toggle('active', tab === 'addresses');
+        protoPaneSummary?.classList.toggle('hidden', tab !== 'summary');
+        protoPaneFlows?.classList.toggle('hidden', tab !== 'flows');
+        protoPaneAddresses?.classList.toggle('hidden', tab !== 'addresses');
       }
 
-      function renderProtocol(snapshot) {
-        const p = snapshot?.protocol_activity || {};
-        const net1m = Number(p.net_flow_1m || 0);
-        const net5m = Number(p.net_flow_5m || 0);
-        const inflow1m = Number(p.protocol_inflow_1m || 0);
-        const outflow1m = Number(p.protocol_outflow_1m || 0);
-        const inflow5m = Number(p.protocol_inflow_5m || 0);
-        const outflow5m = Number(p.protocol_outflow_5m || 0);
-        protocol1mPill.textContent = `Net 1m: ${fmt(net1m)} V (in ${fmt(inflow1m)} / out ${fmt(outflow1m)})`;
-        protocol5mPill.textContent = `Net 5m: ${fmt(net5m)} V (in ${fmt(inflow5m)} / out ${fmt(outflow5m)})`;
-        protocolExecPill.textContent = `Executor 5m: ${Number(p.executor_interactions_5m || 0)}`;
-        sellWallBalancePill.textContent = `Sell Wall Balance: ${fmt(p.sell_wall_token_balance || 0)} T`;
-        launchPoolBalancePill.textContent = `LaunchPool Balance: ${fmt(p.launch_pool_token_balance || 0)} T`;
-        protocolAlertText.textContent = p.alert
-          ? `Alert: inflow_1m ${fmt(inflow1m)} V >= threshold ${fmt(p.alert_threshold_virtual || 0)}`
-          : `Alert: none (threshold ${fmt(p.alert_threshold_virtual || 0)} V)`;
-        protocolAlertText.style.color = p.alert ? '#ffb5c2' : '#9fc2df';
-        const potential = p.potential_addresses || [];
-        protocolPotentialText.textContent = `Potential: ${potential.length}`;
+      function renderProtocolMonitor(payload) {
+        const p = payload || {};
+        const s = p.summary || {};
+        const addresses = p.addresses || [];
+        const flows = p.specialFlows || [];
+        protocol1mPill.textContent = `Net 1m: ${fmt(s.net1mV || 0)} V (in ${fmt(s.net1mInV || 0)} / out ${fmt(s.net1mOutV || 0)})`;
+        protocol5mPill.textContent = `Net 5m: ${fmt(s.net5mV || 0)} V (in ${fmt(s.net5mInV || 0)} / out ${fmt(s.net5mOutV || 0)})`;
+        protocolExecPill.textContent = `Executor 5m: ${Number(s.executor5m || 0)}`;
+        sellWallBalancePill.textContent = `Sell Wall Balance: ${fmt(s.sellWallBalanceT || 0)} T`;
+        launchPoolBalancePill.textContent = `LaunchPool Balance: ${fmt(s.launchPoolBalanceT || 0)} T`;
+        protocolPotentialText.textContent = `Potential: ${Number(s.potential || 0)}`;
+        protocolAlertText.textContent = `Alert(${String(s.alert?.level || 'none')}): ${String(s.alert?.message || 'No special alert')}`;
+        protocolAlertText.style.color = s.alert?.level === 'critical' ? '#ffb5c2' : s.alert?.level === 'warn' ? '#ffd99f' : '#9fc2df';
 
-        const rows = p.by_address || [];
-        protocolBody.innerHTML = rows.map((r) => {
-          const cls = Number(r.net_virtual_1m || 0) >= 0 ? 'good' : 'bad';
+        const renderAddrRows = (rows) => rows.map((r) => {
+          const cls = Number(r.net1mV || 0) >= 0 ? 'good' : 'bad';
           return `
             <tr>
               <td class="mono" title="${r.address || ''}">${shortAddr(r.address || '')}</td>
               <td>${r.type || '-'}</td>
-              <td class="${cls}">${fmt(r.net_virtual_1m || 0)}</td>
-              <td>${fmt(r.net_virtual_5m || 0)}</td>
-              <td>${fmt(r.net_token_5m || 0)}</td>
-              <td>${Number(r.interaction_count_5m || 0)}</td>
+              <td class="${cls}" title="${Number(r.net1mV || 0)}">${fmt(r.net1mV || 0)}</td>
+              <td title="${Number(r.net5mV || 0)}">${fmt(r.net5mV || 0)}</td>
+              <td title="${Number(r.net5mT || 0)}">${fmt(r.net5mT || 0)}</td>
+              <td>${Number(r.interactions5m || 0)}</td>
             </tr>
           `;
         }).join('');
+
+        protocolSummaryBody.innerHTML = renderAddrRows(addresses.slice(0, 12));
+        protocolAddressesBody.innerHTML = renderAddrRows(addresses);
+        protocolAddressesEmpty.classList.toggle('hidden', addresses.length > 0);
+
+        protocolFlowsBody.innerHTML = flows.map((r) => {
+          const c = Number(r.v5m || 0) >= 0 ? 'good' : 'bad';
+          return `
+            <tr>
+              <td>${r.label || '-'}</td>
+              <td>${r.category || '-'}</td>
+              <td class="${c}" title="${Number(r.v5m || 0)}">${fmt(r.v5m || 0)}</td>
+              <td title="${Number(r.v1h || 0)}">${fmt(r.v1h || 0)}</td>
+              <td title="${Number(r.cumV || 0)}">${fmt(r.cumV || 0)}</td>
+              <td title="${Number(r.t5m || 0)}">${fmt(r.t5m || 0)}</td>
+              <td title="${Number(r.cumT || 0)}">${fmt(r.cumT || 0)}</td>
+            </tr>
+          `;
+        }).join('');
+        protocolFlowsEmpty.classList.toggle('hidden', flows.length > 0);
       }
 
       function renderRealtimePriceAndTrades(snapshot) {
@@ -1828,8 +1883,7 @@
         renderBars(snapshot.minute_series || []);
         renderCurve(snapshot.curves || {});
         renderHolders(snapshot);
-        renderSpecial(snapshot);
-        renderProtocol(snapshot);
+        if (!latestProtocol && snapshot?.token) fetchProtocolMonitor(snapshot.token).catch(() => {});
         renderRealtimePriceAndTrades(snapshot);
         renderMyWalletStats(snapshot.my_wallets || {});
       }
@@ -1908,6 +1962,20 @@
         const d = await fetch(apiUrl('/api/status'), { cache: 'no-store' }).then((r) => r.json());
         if (d?.snapshot) renderSnapshot(d.snapshot);
         return d;
+      }
+
+      let lastProtocolToken = '';
+      async function fetchProtocolMonitor(token) {
+        const tkn = String(token || '').trim().toLowerCase();
+        if (!/^0x[a-f0-9]{40}$/.test(tkn)) return null;
+        lastProtocolToken = tkn;
+        const d = await fetch(apiUrl(`/api/protocol-monitor?token=${tkn}`), { cache: 'no-store' }).then((r) => r.json());
+        if (d?.ok) {
+          latestProtocol = d;
+          renderProtocolMonitor(d);
+          return d;
+        }
+        return null;
       }
 
       startBtn.addEventListener('click', async () => {
@@ -2013,6 +2081,10 @@
         localStorage.setItem(LS_STRICT_CHAIN_MODE_KEY, strictChainMode ? '1' : '0');
         if (latest) renderRealtimePriceAndTrades(latest);
       });
+
+      protoTabSummaryBtn?.addEventListener('click', () => setProtocolTab('summary'));
+      protoTabFlowsBtn?.addEventListener('click', () => setProtocolTab('flows'));
+      protoTabAddressesBtn?.addEventListener('click', () => setProtocolTab('addresses'));
 
       [pricePrecisionInput, mcapPrecisionInput].forEach((el) => {
         el?.addEventListener('input', () => {
@@ -2164,10 +2236,16 @@
           flashUntil = Date.now() + 10000;
           renderSnapshot(p.snapshot);
         });
+        eventSource.addEventListener('protocol_update', (ev) => {
+          const p = JSON.parse(ev.data);
+          latestProtocol = p;
+          renderProtocolMonitor(p);
+        });
         eventSource.onerror = () => {
           statusPill.textContent = t('status_line', { status: t('status_disconnected'), block: '-' });
           transferPill.textContent = t('transfers_disconnected');
           setHint(t('sse_disconnected'), 'warn');
+          if (lastProtocolToken) fetchProtocolMonitor(lastProtocolToken).catch(() => {});
           try { eventSource.close(); } catch {}
           eventSource = null;
           clearTimeout(sseRetryTimer);
@@ -2227,10 +2305,12 @@
       }
       applyExplorerOptions(explorerSaved, false);
       setExplorerStatus('ready');
+      setProtocolTab('summary');
       connectEvents();
 
       fetch(apiUrl('/api/status')).then((r) => r.json()).then((d) => {
         renderSnapshot(d.snapshot);
+        if (d?.snapshot?.token) fetchProtocolMonitor(d.snapshot.token).catch(() => {});
       }).catch(() => {
         setHint(t('init_status_failed'), 'err');
       });

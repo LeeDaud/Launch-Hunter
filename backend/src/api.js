@@ -1,10 +1,12 @@
-﻿import express from 'express';
+import express from 'express';
 import { isAddress } from 'viem';
+import { ProtocolService } from './services/protocol-service.js';
 
 export function createApi({ tracker, db }) {
   const router = express.Router();
   const clients = new Set();
   const etherscanApiKey = String(process.env.ETHERSCAN_API_KEY || '').trim();
+  const protocolService = new ProtocolService({ tracker });
 
   const send = (res, event, data) => {
     res.write(`event: ${event}\n`);
@@ -20,6 +22,10 @@ export function createApi({ tracker, db }) {
   tracker.subscribe((payload) => {
     broadcast('update', payload);
     if (payload?.snapshot?.signal_state?.passed_now) broadcast('signal', payload);
+    if (payload?.snapshot?.token) {
+      const protocolPayload = protocolService.buildPayloadFromSnapshot(payload.snapshot);
+      broadcast('protocol_update', protocolPayload);
+    }
   });
 
   router.get('/health', (_req, res) => {
@@ -28,6 +34,39 @@ export function createApi({ tracker, db }) {
 
   router.get('/status', (_req, res) => {
     res.json({ ok: true, status: tracker.getStatus(), snapshot: tracker.getSnapshot() });
+  });
+
+  router.get('/protocol-monitor', (req, res) => {
+    const token = String(req.query?.token || '').trim().toLowerCase();
+    const result = protocolService.getProtocolMonitor(token);
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  });
+
+  router.get('/protocol-activity', (req, res) => {
+    const token = String(req.query?.token || '').trim().toLowerCase();
+    const result = protocolService.getProtocolMonitor(token);
+    if (!result.ok) return res.status(400).json(result);
+    return res.json({
+      ok: true,
+      token: result.token,
+      summary: result.summary,
+      addresses: result.addresses,
+      potentialAddresses: result.potentialAddresses,
+      deprecated: true,
+    });
+  });
+
+  router.get('/special-protocol-flows', (req, res) => {
+    const token = String(req.query?.token || '').trim().toLowerCase();
+    const result = protocolService.getProtocolMonitor(token);
+    if (!result.ok) return res.status(400).json(result);
+    return res.json({
+      ok: true,
+      token: result.token,
+      specialFlows: result.specialFlows,
+      deprecated: true,
+    });
   });
 
   router.get('/records/transfers', (req, res) => {
@@ -170,6 +209,7 @@ export function createApi({ tracker, db }) {
 
     const snapshot = tracker.getSnapshot();
     if (snapshot) send(res, 'update', { type: 'snapshot', ts: Date.now(), snapshot });
+    if (snapshot?.token) send(res, 'protocol_update', protocolService.buildPayloadFromSnapshot(snapshot));
 
     const timer = setInterval(() => {
       res.write(': heartbeat\n\n');
